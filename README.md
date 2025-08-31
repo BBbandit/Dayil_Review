@@ -271,6 +271,26 @@ GET /api/industries/detail
 
 ## 🚀 快速开始
 
+### Git 版本控制
+
+项目已初始化 Git 仓库，包含以下功能：
+
+```bash
+# 查看当前状态
+git status
+
+# 查看提交历史
+git log --oneline
+
+# 查看分支
+git branch
+
+# 切换到开发分支
+git checkout develop
+```
+
+详细开发流程请参考 [DEVELOPMENT.md](./DEVELOPMENT.md)
+
 ### 环境要求
 - Python 3.8+
 - Node.js (可选，用于前端构建)
