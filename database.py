@@ -6,8 +6,8 @@ MySQL数据库配置和CRUD操作接口
 端口: 3309
 """
 
-import mysql.connector
-from mysql.connector import Error
+import pymysql
+from pymysql import Error
 import pandas as pd
 from datetime import datetime, timedelta
 from typing import List, Dict, Any, Optional
@@ -31,14 +31,16 @@ class StockDatabase:
     def connect(self):
         """建立数据库连接"""
         try:
-            self.connection = mysql.connector.connect(
+            self.connection = pymysql.connect(
                 host=self.host,
                 port=self.port,
                 database=self.database,
                 user=self.user,
-                password=self.password
+                password=self.password,
+                charset='utf8mb4',
+                autocommit=True
             )
-            if self.connection.is_connected():
+            if self.connection.open:
                 print(f"成功连接到MySQL数据库 (端口: {self.port})")
                 return True
         except Error as e:
@@ -47,14 +49,14 @@ class StockDatabase:
     
     def disconnect(self):
         """关闭数据库连接"""
-        if self.connection and self.connection.is_connected():
+        if self.connection and self.connection.open:
             self.connection.close()
             print("数据库连接已关闭")
     
     def execute_query(self, query: str, params: tuple = None):
         """执行查询语句"""
         try:
-            cursor = self.connection.cursor(dictionary=True)
+            cursor = self.connection.cursor(pymysql.cursors.DictCursor)
             cursor.execute(query, params)
             result = cursor.fetchall()
             cursor.close()
@@ -163,7 +165,7 @@ class StockDatabase:
                 id INT AUTO_INCREMENT PRIMARY KEY,
                 date DATE NOT NULL,
                 industry_name VARCHAR(50) NOT NULL,
-                rank INT NOT NULL,
+                `rank` INT NOT NULL,
                 chg_pct DECIMAL(5,2) NOT NULL,
                 strength_score INT NOT NULL,
                 amount BIGINT NOT NULL,
@@ -387,11 +389,11 @@ class StockDatabase:
         """创建行业数据"""
         query = """
         INSERT INTO industry_daily 
-        (date, industry_name, rank, chg_pct, strength_score, amount, 
+        (date, industry_name, `rank`, chg_pct, strength_score, amount, 
          net_main_inflow, advances, declines, leaders)
         VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
         ON DUPLICATE KEY UPDATE
-            rank = VALUES(rank),
+            `rank` = VALUES(`rank`),
             chg_pct = VALUES(chg_pct),
             strength_score = VALUES(strength_score),
             amount = VALUES(amount),
@@ -416,13 +418,13 @@ class StockDatabase:
             query = "SELECT * FROM industry_daily WHERE date = %s AND industry_name = %s"
             params = (date, industry_name)
         elif date:
-            query = "SELECT * FROM industry_daily WHERE date = %s ORDER BY rank ASC"
+            query = "SELECT * FROM industry_daily WHERE date = %s ORDER BY `rank` ASC"
             params = (date,)
         elif industry_name:
             query = "SELECT * FROM industry_daily WHERE industry_name = %s ORDER BY date DESC"
             params = (industry_name,)
         else:
-            query = "SELECT * FROM industry_daily ORDER BY date DESC, rank ASC LIMIT 100"
+            query = "SELECT * FROM industry_daily ORDER BY date DESC, `rank` ASC LIMIT 100"
             params = None
         
         result = self.execute_query(query, params)

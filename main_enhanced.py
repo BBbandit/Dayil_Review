@@ -20,6 +20,9 @@ import plotly.graph_objects as go
 from plotly.subplots import make_subplots
 import plotly.offline as pyo
 
+# 数据库支持
+from database import StockDatabase, get_database
+
 # 创建输出目录
 os.makedirs('output', exist_ok=True)
 os.makedirs('templates', exist_ok=True)
@@ -27,10 +30,21 @@ os.makedirs('static/css', exist_ok=True)
 os.makedirs('static/js', exist_ok=True)
 
 class EnhancedStockDashboard:
-    def __init__(self):
+    def __init__(self, use_database=False):
         self.current_page = "ladder"  # 默认页面: ladder, sentiment, themes, industries
         self.html_file = 'output/stock_dashboard_enhanced.html'
-        self.data = self.generate_comprehensive_mock_data()
+        self.use_database = use_database
+        self.db = None
+        
+        # 强制使用数据库模式
+        self.use_database = True
+        self.db = get_database()
+        if self.db.connect():
+            print("√ 数据库连接成功")
+            self.data = self.load_data_from_database()
+        else:
+            print("❌ 数据库连接失败，程序退出")
+            exit(1)
     
     def generate_comprehensive_mock_data(self):
         """生成完整的模拟数据"""
@@ -132,6 +146,50 @@ class EnhancedStockDashboard:
             'industry_daily': pd.DataFrame(industry_daily),
             'dates': date_strs
         }
+    
+    def load_data_from_database(self):
+        """从数据库加载数据"""
+        print("√ 从数据库加载数据...")
+        
+        data = {}
+        
+        try:
+            # 加载市场情绪数据
+            sentiment_data = self.db.get_market_sentiment()
+            data['market_sentiment'] = pd.DataFrame(sentiment_data) if sentiment_data else pd.DataFrame()
+            
+            # 加载连板个股数据
+            limitup_data = self.db.get_limitup_events()
+            data['limitup_events'] = pd.DataFrame(limitup_data) if limitup_data else pd.DataFrame()
+            
+            # 加载题材数据
+            theme_data = self.db.get_theme_data()
+            data['theme_daily'] = pd.DataFrame(theme_data) if theme_data else pd.DataFrame()
+            
+            # 加载行业数据
+            industry_data = self.db.get_industry_data()
+            data['industry_daily'] = pd.DataFrame(industry_data) if industry_data else pd.DataFrame()
+            
+            # 获取日期列表
+            if not data['market_sentiment'].empty:
+                dates = sorted(data['market_sentiment']['date'].unique())
+                data['dates'] = [str(date) for date in dates]
+            else:
+                # 如果没有数据，使用默认日期
+                data['dates'] = ['2024-01-01', '2024-01-02', '2024-01-03']
+            
+            print(f"√ 数据加载完成: ")
+            print(f"   市场情绪: {len(data['market_sentiment'])} 条")
+            print(f"   连板个股: {len(data['limitup_events'])} 条")
+            print(f"   题材数据: {len(data['theme_daily'])} 条")
+            print(f"   行业数据: {len(data['industry_daily'])} 条")
+            
+        except Exception as e:
+            print(f"❌ 数据库数据加载失败: {e}")
+            print("❌ 程序退出")
+            exit(1)
+        
+        return data
     
     def create_sentiment_heatmap(self):
         """创建大盘情绪热力图"""
@@ -804,10 +862,11 @@ class EnhancedStockDashboard:
 
 def main():
     """主函数"""
+    
     print("正在生成增强版股票市场分析仪表板...")
     
     # 创建仪表板实例
-    dashboard = EnhancedStockDashboard()
+    dashboard = EnhancedStockDashboard(use_database=True)
     
     # 生成HTML
     html_file = dashboard.generate_enhanced_html()

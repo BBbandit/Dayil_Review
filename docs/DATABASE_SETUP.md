@@ -47,7 +47,7 @@ DATABASE_CONFIG = {
     'port': 3309,
     'database': 'stock_analysis',
     'user': 'root',
-    'password': 'your_password_here',  # 修改为你的密码
+    'password': '123456',  # 修改为你的密码
     'charset': 'utf8mb4',
     'autocommit': True
 }

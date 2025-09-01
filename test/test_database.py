@@ -7,6 +7,9 @@ MySQL数据库CRUD操作测试用例
 
 import unittest
 from datetime import datetime, timedelta
+import sys
+import os
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from database import StockDatabase
 import json
 
@@ -37,7 +40,7 @@ class TestStockDatabase(unittest.TestCase):
     
     def test_1_connection(self):
         """测试数据库连接"""
-        self.assertTrue(self.db.connection.is_connected())
+        self.assertTrue(self.db.connection.open)
         print("✓ 数据库连接测试通过")
     
     def test_2_market_sentiment_crud(self):
@@ -288,9 +291,9 @@ def run_tests():
     print(f"失败: {len(result.failures)}, 错误: {len(result.errors)}")
     
     if result.wasSuccessful():
-        print("🎉 所有测试通过!")
+        print("√ 所有测试通过!")
     else:
-        print("❌ 测试未全部通过")
+        print("× 测试未全部通过")
         
     return result.wasSuccessful()
 

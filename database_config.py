@@ -11,7 +11,7 @@ DATABASE_CONFIG = {
     'port': 3309,  # 指定端口3309
     'database': 'stock_analysis',
     'user': 'root',
-    'password': 'password',  # 请根据实际情况修改
+    'password': '123456',  # 请根据实际情况修改
     'charset': 'utf8mb4',
     'autocommit': True
 }
@@ -20,9 +20,9 @@ DATABASE_CONFIG = {
 TEST_DATABASE_CONFIG = {
     'host': 'localhost',
     'port': 3309,
-    'database': 'stock_analysis_test',
+    'database': 'stock_analysis',
     'user': 'root',
-    'password': 'password',
+    'password': '123456',
     'charset': 'utf8mb4',
     'autocommit': True
 }
