@@ -295,9 +295,64 @@ class EnhancedStockDashboard:
             formatted_date = f"{date[:4]}-{date[4:6]}-{date[6:8]}" if len(date) == 8 and date.isdigit() else date
             date_data = ladder_data[ladder_data['date'] == date]
             if not date_data.empty:
+                
+                # 计算统计信息
+                max_board = date_data['continuous_board_count'].max()
+                one_word_count = date_data['is_one_word_board'].sum()
+                board_break_count = len(date_data[date_data['board_break_count'] > 0])  # 统计有炸板的个股数量
+                
+                # 统计各板数量
+                board_counts = {}
+                for i in range(1, 8):
+                    count = len(date_data[date_data['continuous_board_count'] == i])
+                    if count > 0:
+                        board_counts[i] = count
+                
+                # 统计所有题材概念出现次数（拆分组合概念）
+                theme_counts = {}
+                for _, stock in date_data.iterrows():
+                    themes = []
+                    try:
+                        if pd.notna(stock.get('themes')):
+                            themes = json.loads(stock.get('themes', '[]'))
+                    except (json.JSONDecodeError, TypeError):
+                        themes = []
+                    
+                    # 拆分组合概念（如"半年报扭亏+品牌升级+数字化"拆分为单个概念）
+                    for theme in themes:
+                        # 按+号拆分概念
+                        individual_themes = [t.strip() for t in theme.split('+') if t.strip()]
+                        for individual_theme in individual_themes:
+                            theme_counts[individual_theme] = theme_counts.get(individual_theme, 0) + 1
+                
+                # 按出现次数降序排序题材，取前10个
+                sorted_themes = sorted(theme_counts.items(), key=lambda x: x[1], reverse=True)[:10]
+                
+                # 生成统计HTML
+                stats_html = f'''
+                <div class="summary-stats">
+                    <div class="summary-item"><span class="summary-label">最高板:</span><span class="summary-value">{max_board}板</span></div>
+                    <div class="summary-item"><span class="summary-label">一字板:</span><span class="summary-value">{one_word_count}个</span></div>
+                    <div class="summary-item"><span class="summary-label">炸板数:</span><span class="summary-value">{board_break_count}个</span></div>
+                '''
+                
+                # 添加各板数量统计
+                for board, count in board_counts.items():
+                    stats_html += f'<div class="summary-item"><span class="summary-label">{board}板:</span><span class="summary-value">{count}个</span></div>'
+                
+                # 添加所有题材概念显示
+                if sorted_themes:
+                    stats_html += '<div class="theme-stats">'
+                    for theme, count in sorted_themes:
+                        stats_html += f'<div class="theme-stat-item"><span>{theme}</span><span class="theme-stat-count">{count}次</span></div>'
+                    stats_html += '</div>'
+                
+                stats_html += '</div>'
+                
                 ladder_html += f'''
                 <div class="date-column">
                     <h4 class="column-date">{formatted_date}</h4>
+                    {stats_html}
                     <div class="ladder-cards">
                 '''
                 
@@ -656,7 +711,7 @@ class EnhancedStockDashboard:
         }
         
         .date-column {
-            min-width: 360px; /* 增加宽度以显示完整内容 */
+            min-width: 400px; /* 增加宽度以显示统计信息 */
             background: var(--panel);
             border-radius: 12px;
             padding: 15px;
@@ -668,6 +723,48 @@ class EnhancedStockDashboard:
             margin-bottom: 15px;
             text-align: center;
             font-size: 1.1em;
+        }
+        
+        .summary-stats {
+            background: var(--chip-bg);
+            border-radius: 8px;
+            padding: 12px;
+            margin-bottom: 15px;
+            border: 1px solid var(--grid-border);
+        }
+        
+        .summary-item {
+            display: flex;
+            justify-content: space-between;
+            margin: 4px 0;
+            font-size: 0.85em;
+        }
+        
+        .summary-label {
+            color: var(--muted);
+        }
+        
+        .summary-value {
+            color: var(--accent);
+            font-weight: bold;
+        }
+        
+        .theme-stats {
+            margin-top: 10px;
+            padding-top: 10px;
+            border-top: 1px solid var(--grid-border);
+        }
+        
+        .theme-stat-item {
+            display: flex;
+            justify-content: space-between;
+            margin: 2px 0;
+            font-size: 0.8em;
+        }
+        
+        .theme-stat-count {
+            color: var(--accent);
+            font-weight: bold;
         }
         
         .ladder-cards, .theme-cards, .industry-cards {
