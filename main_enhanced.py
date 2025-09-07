@@ -23,6 +23,12 @@ import plotly.offline as pyo
 # 数据库支持
 from database import StockDatabase, get_database
 
+# 涨停数据同步API
+import sys
+import os
+sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+from data_access_layer.limitup_sync_api import get_limitup_data_by_date_range, get_recent_limitup_data
+
 # 创建输出目录
 os.makedirs('output', exist_ok=True)
 os.makedirs('templates', exist_ok=True)
@@ -30,122 +36,134 @@ os.makedirs('static/css', exist_ok=True)
 os.makedirs('static/js', exist_ok=True)
 
 class EnhancedStockDashboard:
-    def __init__(self, use_database=False):
+    def __init__(self,):
         self.current_page = "ladder"  # 默认页面: ladder, sentiment, themes, industries
         self.html_file = 'output/stock_dashboard_enhanced.html'
-        self.use_database = use_database
         self.db = None
         
         # 强制使用数据库模式
-        self.use_database = True
         self.db = get_database()
         if self.db.connect():
             print("√ 数据库连接成功")
+            # 检查并更新数据库数据
+            self.check_and_update_database()
             self.data = self.load_data_from_database()
         else:
             print("❌ 数据库连接失败，程序退出")
             exit(1)
     
     def generate_comprehensive_mock_data(self):
-        """生成完整的模拟数据"""
-        dates = pd.date_range(start='2024-01-01', end='2024-01-10', freq='D')
-        date_strs = [d.strftime('%Y-%m-%d') for d in dates]
-        
-        # 1. 市场情绪数据
-        market_sentiment = []
-        for i, date in enumerate(date_strs):
-            sentiment = {
-                'date': date,
-                'highest_limitup': np.random.randint(3, 10),
-                'first_boards': np.random.randint(20, 50),
-                'limitups': np.random.randint(30, 100),
-                'limitdowns': np.random.randint(5, 20),
-                'sealed_ratio': round(np.random.uniform(0.6, 0.9), 3),
-                'break_ratio': round(np.random.uniform(0.1, 0.3), 3),
-                'p1to2_success': round(np.random.uniform(0.3, 0.7), 3),
-                'p2to3_success': round(np.random.uniform(0.2, 0.5), 3),
-                'yesterday_limitups_roi': round(np.random.uniform(-2, 5), 2),
-                'sh_change': round(np.random.uniform(-1, 2), 2),
-                'sz_change': round(np.random.uniform(-1, 2), 2),
-                'cyb_change': round(np.random.uniform(-2, 3), 2)
-            }
-            market_sentiment.append(sentiment)
-        
-        # 2. 连板个股数据
-        stocks = ['贵州茅台', '宁德时代', '比亚迪', '隆基绿能', '药明康德', '东方财富', 
-                 '中信证券', '中国平安', '招商银行', '万科A', '格力电器', '美的集团']
-        themes_list = ['白酒', '新能源', '汽车', '光伏', '医药', '金融科技', '证券', 
-                      '保险', '银行', '房地产', '家电', '智能制造']
-        industries_list = ['食品饮料', '电力设备', '汽车', '新能源', '医药生物', '非银金融',
-                          '证券', '保险', '银行', '房地产', '家用电器', '机械设备']
-        
-        limitup_events = []
-        for date in date_strs:
-            for i in range(np.random.randint(5, 15)):
-                stock_idx = np.random.randint(0, len(stocks))
-                event = {
-                    'date': date,
-                    'ticker': f'{600000 + stock_idx}',
-                    'stock_name': stocks[stock_idx],
-                    'board_level': np.random.randint(1, 6),
-                    'first_time': f'{np.random.randint(9, 14)}:{np.random.randint(10, 59):02d}',
-                    'refill_counts': np.random.randint(0, 3),
-                    'turnover_rate': round(np.random.uniform(1, 15), 2),
-                    'amount': int(np.random.uniform(10000000, 200000000)),
-                    'mkt_cap_freefloat': int(np.random.uniform(1000000000, 10000000000)),
-                    'is_one_word': np.random.choice([True, False], p=[0.3, 0.7]),
-                    'is_recap': np.random.choice([True, False], p=[0.2, 0.8]),
-                    'themes': [themes_list[stock_idx]],
-                    'industries': [industries_list[stock_idx]]
-                }
-                limitup_events.append(event)
-        
-        # 3. 题材数据
-        theme_names = ['人工智能', '新能源汽车', '光伏储能', '芯片半导体', '医药医疗', 
-                      '消费电子', '军工', '信创', '数字经济', '元宇宙']
-        
-        theme_daily = []
-        for date in date_strs:
-            for theme in theme_names:
-                theme_data = {
-                    'date': date,
-                    'theme_name': theme,
-                    'chg_pct': round(np.random.uniform(-5, 8), 2),
-                    'heat_score': np.random.randint(30, 100),
-                    'is_new': np.random.choice([True, False], p=[0.1, 0.9]),
-                    'streak_days': np.random.randint(1, 5),
-                    'leaders': [stocks[i] for i in np.random.choice(range(len(stocks)), 2)]
-                }
-                theme_daily.append(theme_data)
-        
-        # 4. 行业数据
-        industry_names = ['银行', '证券', '保险', '房地产', '白酒', '医药', '新能源', 
-                         '半导体', '消费电子', '军工', '电力', '煤炭']
-        
-        industry_daily = []
-        for date in date_strs:
-            for i, industry in enumerate(industry_names):
-                industry_data = {
-                    'date': date,
-                    'industry_name': industry,
-                    'rank': i + 1,
-                    'chg_pct': round(np.random.uniform(-3, 6), 2),
-                    'strength_score': np.random.randint(50, 100),
-                    'amount': int(np.random.uniform(1000000000, 5000000000)),
-                    'net_main_inflow': int(np.random.uniform(-500000000, 2000000000)),
-                    'advances': np.random.randint(5, 30),
-                    'declines': np.random.randint(2, 15),
-                    'leaders': [stocks[j] for j in np.random.choice(range(len(stocks)), 3)]
-                }
-                industry_daily.append(industry_data)
-        
+        """生成完整的模拟数据（已禁用）"""
+        print("❌ 模拟数据功能已禁用，请使用真实数据库数据")
         return {
-            'market_sentiment': pd.DataFrame(market_sentiment),
-            'limitup_events': pd.DataFrame(limitup_events),
-            'theme_daily': pd.DataFrame(theme_daily),
-            'industry_daily': pd.DataFrame(industry_daily),
-            'dates': date_strs
+            'market_sentiment': pd.DataFrame(),
+            'limitup_events': pd.DataFrame(),
+            'theme_daily': pd.DataFrame(),
+            'industry_daily': pd.DataFrame(),
+            'dates': []
         }
+    
+    def _convert_db_data(self, data_list):
+        """转换数据库返回的特殊数据类型为Python基本类型"""
+        if not data_list:
+            return []
+        
+        converted_data = []
+        for item in data_list:
+            converted_item = {}
+            for key, value in item.items():
+                # 转换Decimal为float
+                if hasattr(value, '__class__') and 'Decimal' in str(value.__class__):
+                    converted_item[key] = float(value)
+                # 转换date为字符串
+                elif hasattr(value, '__class__') and 'date' in str(value.__class__):
+                    converted_item[key] = str(value)
+                # 转换datetime为字符串
+                elif hasattr(value, '__class__') and 'Timestamp' in str(value.__class__):
+                    converted_item[key] = str(value)
+                # 转换MySQL boolean (0/1) 为 Python boolean
+                elif key in ['is_one_word', 'is_recap', 'is_new'] and value in [0, 1]:
+                    converted_item[key] = bool(value)
+                else:
+                    converted_item[key] = value
+            converted_data.append(converted_item)
+        
+        return converted_data
+    
+    def check_and_update_database(self):
+        """检查数据库是否需要更新，如果需要则进行增量更新"""
+        print("√ 检查数据库数据状态...")
+        
+        # 获取数据库中最新的交易日期
+        latest_db_date = self.db.get_latest_trade_date()
+        
+        # 获取当前日期（模拟最新交易日）
+        current_date = datetime.now().date()
+        current_date_str = datetime.now().strftime('%Y-%m-%d')
+        
+        # 存储最新日期用于UI显示
+        self.latest_db_date = latest_db_date.strftime('%Y-%m-%d') if latest_db_date else current_date_str
+        
+        if latest_db_date:
+            print(f"   数据库最新日期: {latest_db_date}")
+            print(f"   当前日期: {current_date}")
+            
+            # 如果数据库日期不是最新，则进行更新
+            if latest_db_date < current_date:
+                print(f"   需要更新数据: {latest_db_date} -> {current_date}")
+                self.update_database_incrementally(latest_db_date, current_date)
+            else:
+                print("   数据库数据已是最新，无需更新")
+        else:
+            print("   数据库为空，需要初始化数据")
+            self.initialize_database_with_mock_data()
+    
+    def update_database_incrementally(self, start_date, end_date):
+        """增量更新数据库数据"""
+        print(f"√ 增量更新数据库数据: {start_date} 到 {end_date}")
+        
+        # 这里应该调用akshare或其他数据源API获取增量数据
+        # 由于akshare集成需要额外配置，这里使用模拟数据作为示例
+        
+        # 生成增量数据
+        incremental_data = self.generate_incremental_mock_data(start_date.strftime('%Y-%m-%d'), end_date.strftime('%Y-%m-%d'))
+        
+        # 批量插入增量数据
+        success_count = 0
+        
+        # 插入市场情绪数据
+        if incremental_data['market_sentiment']:
+            success_count += self.db.batch_insert_data('market_sentiment', incremental_data['market_sentiment'])
+        
+        # 插入连板个股数据
+        if incremental_data['limitup_events']:
+            success_count += self.db.batch_insert_data('limitup_events', incremental_data['limitup_events'])
+        
+        # 插入题材数据
+        if incremental_data['theme_daily']:
+            success_count += self.db.batch_insert_data('theme_daily', incremental_data['theme_daily'])
+        
+        # 插入行业数据
+        if incremental_data['industry_daily']:
+            success_count += self.db.batch_insert_data('industry_daily', incremental_data['industry_daily'])
+        
+        print(f"√ 增量更新完成，成功插入 {success_count} 条记录")
+    
+    def generate_incremental_mock_data(self, start_date, end_date):
+        """生成增量模拟数据（已禁用）"""
+        print("❌ 模拟数据功能已禁用，请使用真实数据库数据")
+        return {}
+    
+    def initialize_database_with_mock_data(self):
+        """用模拟数据初始化数据库（已禁用）"""
+        print("❌ 模拟数据初始化已禁用，请先同步真实数据")
+        print("❌ 运行: python -m data_access_layer.limitup_sync_api 同步涨停数据")
+        exit(1)
+    
+    def populate_stock_info_table(self):
+        """填充股票基本信息表（已禁用）"""
+        print("❌ 模拟股票信息已禁用，股票信息将从真实数据中获取")
+        return 0
     
     def load_data_from_database(self):
         """从数据库加载数据"""
@@ -156,33 +174,65 @@ class EnhancedStockDashboard:
         try:
             # 加载市场情绪数据
             sentiment_data = self.db.get_market_sentiment()
-            data['market_sentiment'] = pd.DataFrame(sentiment_data) if sentiment_data else pd.DataFrame()
+            data['market_sentiment'] = pd.DataFrame(self._convert_db_data(sentiment_data)) if sentiment_data else pd.DataFrame()
             
-            # 加载连板个股数据
-            limitup_data = self.db.get_limitup_events()
+            # 加载连板个股数据 - 使用新的limitup_pool表
+            # 获取最近5天的涨停数据
+            limitup_data = get_recent_limitup_data(5)
             data['limitup_events'] = pd.DataFrame(limitup_data) if limitup_data else pd.DataFrame()
             
             # 加载题材数据
             theme_data = self.db.get_theme_data()
-            data['theme_daily'] = pd.DataFrame(theme_data) if theme_data else pd.DataFrame()
+            data['theme_daily'] = pd.DataFrame(self._convert_db_data(theme_data)) if theme_data else pd.DataFrame()
             
             # 加载行业数据
             industry_data = self.db.get_industry_data()
-            data['industry_daily'] = pd.DataFrame(industry_data) if industry_data else pd.DataFrame()
+            data['industry_daily'] = pd.DataFrame(self._convert_db_data(industry_data)) if industry_data else pd.DataFrame()
             
-            # 获取日期列表
-            if not data['market_sentiment'].empty:
-                dates = sorted(data['market_sentiment']['date'].unique())
-                data['dates'] = [str(date) for date in dates]
+            # 获取日期列表 - 优先使用连板数据的日期，按最新到最旧排序
+            if not data['limitup_events'].empty:
+                dates = sorted(data['limitup_events']['date'].unique(), reverse=True)
+                # 最多显示5天数据
+                data['dates'] = [str(date) for date in dates[:5]]
+            elif not data['market_sentiment'].empty:
+                dates = sorted(data['market_sentiment']['date'].unique(), reverse=True)
+                # 最多显示5天数据
+                data['dates'] = [str(date) for date in dates[:5]]
             else:
                 # 如果没有数据，使用默认日期
-                data['dates'] = ['2024-01-01', '2024-01-02', '2024-01-03']
+                data['dates'] = ['20240901', '20240902', '20240903']
             
             print(f"√ 数据加载完成: ")
             print(f"   市场情绪: {len(data['market_sentiment'])} 条")
-            print(f"   连板个股: {len(data['limitup_events'])} 条")
+            print(f"   连板个股: {len(data['limitup_events'])} 条") 
             print(f"   题材数据: {len(data['theme_daily'])} 条")
             print(f"   行业数据: {len(data['industry_daily'])} 条")
+            
+            # 调试信息：检查数据内容
+            print(f"   市场情绪列名: {list(data['market_sentiment'].columns) if not data['market_sentiment'].empty else '空'}")
+            print(f"   连板个股列名: {list(data['limitup_events'].columns) if not data['limitup_events'].empty else '空'}")
+            # 调试：检查limitup_events数据来源
+            if not data['limitup_events'].empty:
+                print(f"   limitup_events数据来源: {type(data['limitup_events'])}")
+                print(f"   limitup_events数据行数: {len(data['limitup_events'])}")
+                print(f"   limitup_events包含的日期: {data['limitup_events']['date'].unique()}")
+            if not data['market_sentiment'].empty:
+                print(f"   最新市场情绪数据: {dict(data['market_sentiment'].iloc[-1])}")
+            if not data['limitup_events'].empty:
+                print(f"   首个连板个股: {dict(data['limitup_events'].iloc[0])}")
+                # 调试：检查行业和题材数据
+                first_stock = data['limitup_events'].iloc[0]
+                print(first_stock)
+                
+                # 尝试解析题材JSON
+                themes = first_stock.get('themes')
+                if themes and pd.notna(themes):
+                    try:
+                        parsed_themes = json.loads(themes)
+                        print(f"   解析后的题材: {parsed_themes}")
+                    except Exception as e:
+                        print(f"   题材JSON解析失败: {e}")
+                        print(f"   原始题材数据: {themes}")
             
         except Exception as e:
             print(f"❌ 数据库数据加载失败: {e}")
@@ -241,33 +291,57 @@ class EnhancedStockDashboard:
         
         ladder_html = ""
         for date in dates:
+            # 转换日期格式匹配 (YYYYMMDD → YYYY-MM-DD)
+            formatted_date = f"{date[:4]}-{date[4:6]}-{date[6:8]}" if len(date) == 8 and date.isdigit() else date
             date_data = ladder_data[ladder_data['date'] == date]
             if not date_data.empty:
                 ladder_html += f'''
                 <div class="date-column">
-                    <h4 class="column-date">{date}</h4>
+                    <h4 class="column-date">{formatted_date}</h4>
                     <div class="ladder-cards">
                 '''
                 
                 for _, stock in date_data.iterrows():
-                    badge_class = "one-word" if stock['is_one_word'] else "normal"
-                    badge_class += " recap" if stock['is_recap'] else ""
+                    badge_class = "one-word" if stock.get('is_one_word_board', False) else "normal"
+                    badge_class += " recap" if stock.get('is_recap_board', False) else ""
+                    
+                    # 格式化金额和换手率
+                    amount_formatted = f"{stock.get('amount', 0):,.0f}" if pd.notna(stock.get('amount')) else "0"
+                    turnover_formatted = f"{stock.get('turnover_rate', 0):.2f}" if pd.notna(stock.get('turnover_rate')) else "0.00"
+                    
+                    # 解析概念数据
+                    themes = []
+                    try:
+                        if pd.notna(stock.get('themes')):
+                            themes = json.loads(stock.get('themes', '[]'))
+                    except (json.JSONDecodeError, TypeError):
+                        themes = []
+                    
+                    themes_html = ''
+                    if themes:
+                        theme_tags = " ".join([f'<span class="theme-tag">{theme}</span>' for theme in themes[:3]])
+                        themes_html = f'<div class="tags">{theme_tags}</div>'
+                    
+                    # 格式化总市值
+                    total_market_value_formatted = f"{stock.get('total_market_value', 0):,.0f}" if pd.notna(stock.get('total_market_value')) else "0"
                     
                     ladder_html += f'''
-                    <div class="limitup-card {badge_class}" onclick="showStockDetail('{stock['ticker']}')">
+                    <div class="limitup-card {badge_class}" onclick="showStockDetail('{stock.get('code', '')}')">
                         <div class="stock-header">
-                            <span class="board-level">{stock['board_level']}板</span>
-                            <h5>{stock['stock_name']}</h5>
-                            <span class="stock-code">{stock['ticker']}</span>
+                            <span class="board-level">{stock.get('continuous_board_count', 0)}板</span>
+                            <h5>{stock.get('name', '')}</h5>
+                            <span class="stock-code">{stock.get('code', '')}</span>
                         </div>
                         <div class="stock-info">
-                            <p>📈 涨停时间: {stock['first_time']}</p>
-                            <p>🔄 换手率: {stock['turnover_rate']}%</p>
-                            <p>💰 成交额: {stock['amount']:,}</p>
-                            <div class="tags">
-                                <span class="theme-tag">{stock['themes'][0]}</span>
-                                <span class="industry-tag">{stock['industries'][0]}</span>
-                            </div>
+                            <p>💰 最新价: {stock.get('latest_price', 0):.2f}</p>
+                            <p>📊 总市值: {total_market_value_formatted}</p>
+                            <p>📈 涨停时间: {stock.get('first_limit_time', '')} - {stock.get('last_limit_time', '')}</p>
+                            <p>💥 炸板次数: {stock.get('board_break_count', 0)}次</p>
+                            <p>📊 涨停统计: {stock.get('limit_up_count', '')}</p>
+                            <p>🔄 换手率: {turnover_formatted}%</p>
+                            <p>💰 成交额: {amount_formatted}</p>
+                            <p>🏭 行业: {stock.get('industry', '')}</p>
+                            {themes_html}
                         </div>
                     </div>
                     '''
@@ -366,6 +440,24 @@ class EnhancedStockDashboard:
         
         return industry_html
     
+    def generate_market_options(self):
+        """生成市场筛选选项"""
+        market_options = ""
+        market_boards = self.db.get_market_boards()
+        
+        # 映射市场板块到显示名称
+        market_display_names = {
+            '主板': '主板',
+            '创业板': '创业板',
+            '科创板': '科创板'
+        }
+        
+        for board in market_boards:
+            display_name = market_display_names.get(board, board)
+            market_options += f'<option value="{board}">{display_name}</option>\n'
+        
+        return market_options
+
     def generate_enhanced_html(self):
         """生成增强版HTML页面"""
         # 创建各个模块的内容
@@ -373,6 +465,15 @@ class EnhancedStockDashboard:
         ladder_content = self.create_limitup_ladder()
         theme_content = self.create_theme_cards()
         industry_content = self.create_industry_cards()
+        market_options = self.generate_market_options()
+        
+        # 获取所有可用日期（按最新到最旧排序）
+        all_dates = []
+        if not self.data['limitup_events'].empty:
+            all_dates = sorted(self.data['limitup_events']['date'].unique(), reverse=True)
+        elif not self.data['market_sentiment'].empty:
+            all_dates = sorted(self.data['market_sentiment']['date'].unique(), reverse=True)
+        all_dates = [str(date) for date in all_dates]
         
         # 读取模板
         html_template = '''
@@ -496,6 +597,38 @@ class EnhancedStockDashboard:
             cursor: pointer;
             font-weight: bold;
         }
+
+        .pagination-controls {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            margin-right: 20px;
+        }
+
+        .pagination-btn {
+            padding: 6px 12px;
+            background: var(--chip-bg);
+            color: var(--text);
+            border: 1px solid var(--grid-border);
+            border-radius: 4px;
+            cursor: pointer;
+            font-size: 0.9em;
+        }
+
+        .pagination-btn:hover {
+            background: var(--accent);
+            color: #000;
+        }
+
+        .pagination-btn:disabled {
+            opacity: 0.5;
+            cursor: not-allowed;
+        }
+
+        .page-info {
+            font-size: 0.9em;
+            color: var(--muted);
+        }
         
         .main {
             grid-area: main;
@@ -518,10 +651,12 @@ class EnhancedStockDashboard:
             gap: 20px;
             overflow-x: auto;
             padding: 10px 0;
+            max-height: calc(100vh - 200px);
+            overflow-y: auto;
         }
         
         .date-column {
-            min-width: 320px;
+            min-width: 360px; /* 增加宽度以显示完整内容 */
             background: var(--panel);
             border-radius: 12px;
             padding: 15px;
@@ -548,6 +683,7 @@ class EnhancedStockDashboard:
             border-left: 4px solid var(--accent);
             cursor: pointer;
             transition: all 0.3s;
+            min-height: 280px; /* 增加最小高度以显示完整内容 */
         }
         
         .limitup-card:hover, .theme-card:hover, .industry-card:hover {
@@ -712,17 +848,11 @@ class EnhancedStockDashboard:
         <header class="header">
             <div class="timeline">
                 <h3>市场分析仪表板</h3>
-                <input type="date" class="date-picker" id="startDate" value="2024-01-01">
-                <span>至</span>
-                <input type="date" class="date-picker" id="endDate" value="2024-01-10">
-                <select class="date-picker" id="marketSelect">
-                    <option value="ALL">全部市场</option>
-                    <option value="SH">上证A股</option>
-                    <option value="SZ">深证A股</option>
-                    <option value="CYB">创业板</option>
-                    <option value="KCB">科创板</option>
-                </select>
-                <button class="filter-btn" onclick="applyFilters()">应用筛选</button>
+                <div class="pagination-controls">
+                    <button class="pagination-btn" onclick="changePage(-1)" id="prevBtn">← 上一页</button>
+                    <span class="page-info" id="pageInfo">第 1 页 / 共 1 页</span>
+                    <button class="pagination-btn" onclick="changePage(1)" id="nextBtn">下一页 →</button>
+                </div>
             </div>
         </header>
         
@@ -785,9 +915,13 @@ class EnhancedStockDashboard:
             });
             event.target.classList.add('active');
             
-            // 如果是情绪页面，初始化图表
+            // 如果是情绪页面，隐藏市场分析仪表盘并初始化图表
             if (page === 'sentiment') {
+                document.querySelector('.header').style.display = 'none';
                 initSentimentChart();
+            } else {
+                // 其他页面显示市场分析仪表盘
+                document.querySelector('.header').style.display = 'grid';
             }
         }
         
@@ -830,11 +964,54 @@ class EnhancedStockDashboard:
             console.log('显示行业详情:', industryName);
             alert('行业详情功能: ' + industryName);
         }
+
+        // 分页功能
+        let currentPage = 1;
+        const pageSize = 5; // 每页显示5天数据
+        const allDates = {{all_dates}}; // 所有可用日期
+
+        function changePage(direction) {
+            const totalPages = Math.ceil(allDates.length / pageSize);
+            currentPage += direction;
+            
+            // 限制页码范围
+            if (currentPage < 1) currentPage = 1;
+            if (currentPage > totalPages) currentPage = totalPages;
+            
+            // 更新分页按钮状态
+            updatePaginationControls();
+            
+            // 更新显示的数据
+            updateDisplayedData();
+        }
+
+        function updatePaginationControls() {
+            const totalPages = Math.ceil(allDates.length / pageSize);
+            const prevBtn = document.getElementById('prevBtn');
+            const nextBtn = document.getElementById('nextBtn');
+            const pageInfo = document.getElementById('pageInfo');
+            
+            prevBtn.disabled = currentPage === 1;
+            nextBtn.disabled = currentPage === totalPages;
+            pageInfo.textContent = `第 ${currentPage} 页 / 共 ${totalPages} 页`;
+        }
+
+        function updateDisplayedData() {
+            const startIndex = (currentPage - 1) * pageSize;
+            const endIndex = startIndex + pageSize;
+            const currentDates = allDates.slice(startIndex, endIndex);
+            
+            console.log('显示日期:', currentDates);
+            // 这里可以添加AJAX请求来更新页面数据
+            alert(`已切换到第 ${currentPage} 页，显示日期: ${currentDates.join(', ')}`);
+        }
         
         // 页面加载完成后初始化
         document.addEventListener('DOMContentLoaded', function() {
             // 默认显示连板天梯页面
             switchPage('ladder');
+            // 初始化分页控件
+            updatePaginationControls();
         });
     </script>
 </body>
@@ -843,11 +1020,13 @@ class EnhancedStockDashboard:
         
         # 替换模板中的变量
         html_content = html_template
-        html_content = html_content.replace('{{current_time}}', datetime.now().strftime('%Y-%m-%d %H:%M:%S'))
+        html_content = html_content.replace('{{current_time}}', self.latest_db_date)
+        html_content = html_content.replace('{{market_options}}', market_options)
         html_content = html_content.replace('{{ladder_content}}', ladder_content)
         html_content = html_content.replace('{{theme_content}}', theme_content)
         html_content = html_content.replace('{{industry_content}}', industry_content)
         html_content = html_content.replace('{{sentiment_chart_option}}', sentiment_chart.dump_options())
+        html_content = html_content.replace('{{all_dates}}', json.dumps(all_dates))
         
         # 写入HTML文件
         with open(self.html_file, 'w', encoding='utf-8') as f:
@@ -866,7 +1045,7 @@ def main():
     print("正在生成增强版股票市场分析仪表板...")
     
     # 创建仪表板实例
-    dashboard = EnhancedStockDashboard(use_database=True)
+    dashboard = EnhancedStockDashboard()
     
     # 生成HTML
     html_file = dashboard.generate_enhanced_html()
