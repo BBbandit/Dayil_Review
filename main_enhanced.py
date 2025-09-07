@@ -357,8 +357,10 @@ class EnhancedStockDashboard:
                 '''
                 
                 for _, stock in date_data.iterrows():
-                    badge_class = "one-word" if stock.get('is_one_word_board', False) else "normal"
-                    badge_class += " recap" if stock.get('is_recap_board', False) else ""
+                    board_level = stock.get('continuous_board_count', 0)
+                    badge_class = f"board-{board_level}"
+                    badge_class += " one-word" if stock.get('is_one_word_board', False) else ""
+                    badge_class += " board-break" if stock.get('board_break_count', 0) > 0 else ""
                     
                     # 格式化金额和换手率
                     amount_formatted = f"{stock.get('amount', 0):,.0f}" if pd.notna(stock.get('amount')) else "0"
@@ -386,6 +388,8 @@ class EnhancedStockDashboard:
                             <span class="board-level">{stock.get('continuous_board_count', 0)}板</span>
                             <h5>{stock.get('name', '')}</h5>
                             <span class="stock-code">{stock.get('code', '')}</span>
+                            {('<span class="one-word-badge">一字</span>' if stock.get('is_one_word_board', False) else '')}
+                            {('<span class="board-break-badge">💥炸板</span>' if stock.get('board_break_count', 0) > 0 else '')}
                         </div>
                         <div class="stock-info">
                             <p>💰 最新价: {stock.get('latest_price', 0):.2f}</p>
@@ -788,12 +792,22 @@ class EnhancedStockDashboard:
             box-shadow: var(--shadow);
         }
         
+        /* 不同板级边框颜色 */
+        .limitup-card.board-1 { border-left-color: #ff6b6b; }
+        .limitup-card.board-2 { border-left-color: #feca57; }
+        .limitup-card.board-3 { border-left-color: #48dbfb; }
+        .limitup-card.board-4 { border-left-color: #1dd1a1; }
+        .limitup-card.board-5 { border-left-color: #ff9ff3; }
+        .limitup-card.board-6 { border-left-color: #f368e0; }
+        .limitup-card.board-7 { border-left-color: #ff9f0a; }
+        .limitup-card.board-8 { border-left-color: #ee5253; }
+        
         .limitup-card.one-word {
             border-left-color: var(--badge-purple);
         }
         
-        .limitup-card.recap {
-            border-left-color: var(--badge-cyan);
+        .limitup-card.board-break {
+            background: linear-gradient(135deg, var(--chip-bg) 0%, #ff6b6b20 100%);
         }
         
         .stock-header, .theme-header, .industry-header {
@@ -819,6 +833,26 @@ class EnhancedStockDashboard:
             border-radius: 4px;
             font-size: 0.8em;
             font-weight: bold;
+        }
+        
+        .one-word-badge {
+            background: var(--badge-purple);
+            color: white;
+            padding: 2px 6px;
+            border-radius: 4px;
+            font-size: 0.8em;
+            font-weight: bold;
+            margin-left: 8px;
+        }
+        
+        .board-break-badge {
+            background: var(--red);
+            color: white;
+            padding: 2px 6px;
+            border-radius: 4px;
+            font-size: 0.8em;
+            font-weight: bold;
+            margin-left: 8px;
         }
         
         .heat-score {
