@@ -9,7 +9,15 @@
       "Bash(git branch:*)",
       "Bash(pip install:*)",
       "Bash(tree:*)",
-      "Bash(find:*)"
+      "Bash(find:*)",
+      "Bash(test_batch.bat)",
+      "Read(//e/**)",
+      "Bash(cmd /c:*)",
+      "Bash(powershell -Command:*)",
+      "Bash(update_database.bat)",
+      "Bash(./update_database.bat:*)",
+      "Bash(./update_database_fixed.bat:*)",
+      "Bash(powershell:*)"
     ],
     "deny": [],
     "ask": []

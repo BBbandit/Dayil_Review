@@ -3,19 +3,13 @@
 ## 文件说明
 
 ### 1. update_database.bat
-**基础数据库更新脚本**
+**数据库更新脚本**
 - 功能: 执行涨停数据同步
 - 同步天数: 最近5天数据
 - 日志: 控制台输出
-
-### 2. update_database_advanced.bat  
-**高级数据库更新脚本**
-- 功能: 执行涨停数据同步（带详细日志）
-- 同步天数: 最近5天数据
-- 日志: 自动保存到 logs/ 目录，按日期时间命名
 - 错误处理: 完善的错误检测和状态报告
 
-### 3. test_batch.bat
+### 2. test_batch.bat
 **环境测试脚本**
 - 功能: 测试Python环境和数据库连接
 - 用途: 验证批处理环境是否正常
@@ -23,8 +17,8 @@
 ## 使用方法
 
 ### 手动运行
-1. 双击任意 `.bat` 文件即可运行
-2. 高级版本会自动创建日志文件
+1. 双击 `update_database.bat` 文件即可运行
+2. 执行结果将在控制台显示
 
 ### Windows计划任务设置
 
@@ -34,19 +28,12 @@
 3. 名称: "股票数据库自动更新"
 4. 触发器: 每天 15:30 (收盘后)
 5. 操作: "启动程序"
-6. 程序/脚本: `E:\Shares\dayil_review\batch_management\update_database_advanced.bat`
+6. 程序/脚本: `E:\Shares\dayil_review\batch_management\update_database.bat`
 7. 起始于: `E:\Shares\dayil_review\batch_management`
 
 #### 方法二: 使用命令行创建计划任务
 ```cmd
-schtasks /create /tn "股票数据库更新" /tr "E:\Shares\dayil_review\batch_management\update_database_advanced.bat" /sc daily /st 15:30 /ru System
-```
-
-#### 方法三: 使用PowerShell创建计划任务
-```powershell
-$action = New-ScheduledTaskAction -Execute 'E:\Shares\dayil_review\batch_management\update_database_advanced.bat'
-$trigger = New-ScheduledTaskTrigger -Daily -At '15:30'
-Register-ScheduledTask -TaskName '股票数据库更新' -Action $action -Trigger $trigger -Description '自动更新股票数据库数据'
+schtasks /create /tn "股票数据库更新" /tr "E:\Shares\dayil_review\batch_management\update_database.bat" /sc daily /st 15:30 /ru System
 ```
 
 ## 计划任务推荐设置
@@ -61,24 +48,8 @@ Register-ScheduledTask -TaskName '股票数据库更新' -Action $action -Trigge
 
 ### 错误处理
 - 脚本会自动检测执行状态
-- 失败时会生成错误日志
+- 失败时会在控制台显示错误信息
 - 可以通过Windows事件查看器监控任务执行情况
-
-## 日志查看
-
-### 高级版本日志位置
-```
-batch_management/logs/
-├── update_20250909_1530.log  # 按日期时间命名
-├── update_20250910_1530.log
-└── ...
-```
-
-### 日志内容包含
-- 开始和结束时间
-- Python环境信息
-- 同步详细结果
-- 错误信息（如果有）
 
 ## 环境要求
 
@@ -97,4 +68,4 @@ batch_management/logs/
 
 - 确保MySQL服务在计划任务时间点正在运行
 - 如果akshare API访问受限，可能需要配置代理
-- 定期清理日志文件，避免占用过多磁盘空间
+- 批处理文件使用ANSI编码，确保正常显示中文

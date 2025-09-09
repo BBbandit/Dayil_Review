@@ -241,6 +241,18 @@ class StockDatabase:
         
         return self.execute_query(query, params)
     
+    def get_latest_trade_date(self):
+        """获取数据库中最新的交易日期"""
+        query = "SELECT MAX(date) as latest_date FROM market_sentiment"
+        result = self.execute_query(query)
+        if result and len(result) > 0 and result[0]['latest_date']:
+            return result[0]['latest_date']
+        return None
+    
+    def get_market_boards(self):
+        """获取市场板块列表"""
+        return ['主板', '创业板', '科创板']
+    
     def update_market_sentiment(self, date: str, data: Dict[str, Any]) -> bool:
         """更新市场情绪数据"""
         query = """
