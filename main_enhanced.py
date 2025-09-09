@@ -162,6 +162,71 @@ class EnhancedStockDashboard:
         print("❌ 模拟股票信息已禁用，股票信息将从真实数据中获取")
         return 0
     
+    def calculate_promotion_rates(self, current_date_str):
+        """计算连板晋级率
+        
+        Args:
+            current_date_str: 当前日期 (YYYYMMDD格式)
+            
+        Returns:
+            Dict[int, float]: 各板级的晋级率，key为板级，value为晋级率百分比
+        """
+        promotion_rates = {}
+        
+        try:
+            # 获取当前日期的数据
+            ladder_data = self.data['limitup_events']
+            current_date_data = ladder_data[ladder_data['date'] == current_date_str]
+            
+            if current_date_data.empty:
+                return promotion_rates
+            
+            # 获取所有日期并排序
+            all_dates = sorted(ladder_data['date'].unique())
+            current_date_idx = all_dates.index(current_date_str)
+            
+            # 需要前一个交易日的数据来计算晋级率
+            if current_date_idx == 0:
+                return promotion_rates  # 没有前一个交易日
+            
+            previous_date_str = all_dates[current_date_idx - 1]
+            previous_date_data = ladder_data[ladder_data['date'] == previous_date_str]
+            
+            if previous_date_data.empty:
+                return promotion_rates
+            
+            # 计算各板级的数量（当前日期）
+            current_board_counts = {}
+            for board_level in range(1, 9):  # 1板到8板
+                count = len(current_date_data[current_date_data['continuous_board_count'] == board_level])
+                if count > 0:
+                    current_board_counts[board_level] = count
+            
+            # 计算前一个交易日各板级的数量
+            previous_board_counts = {}
+            for board_level in range(1, 9):  # 1板到8板
+                count = len(previous_date_data[previous_date_data['continuous_board_count'] == board_level])
+                if count > 0:
+                    previous_board_counts[board_level] = count
+            
+            # 计算晋级率（从n板晋级到n+1板的比率）
+            for board_level in range(2, 9):  # 从2板开始计算晋级率
+                if board_level in current_board_counts and (board_level - 1) in previous_board_counts:
+                    current_count = current_board_counts[board_level]
+                    previous_count = previous_board_counts[board_level - 1]
+                    
+                    if previous_count > 0:
+                        promotion_rate = (current_count / previous_count) * 100
+                        promotion_rates[board_level] = round(promotion_rate, 1)
+                    else:
+                        promotion_rates[board_level] = 0.0
+                
+        except Exception as e:
+            print(f"计算晋级率时出错: {e}")
+            return promotion_rates
+        
+        return promotion_rates
+    
     def load_data_from_database(self):
         """从数据库加载数据"""
         print("√ 从数据库加载数据...")
@@ -286,10 +351,13 @@ class EnhancedStockDashboard:
                 
                 # 统计各板数量
                 board_counts = {}
-                for i in range(1, 8):
+                for i in range(1, 9):  # 扩展到8板
                     count = len(date_data[date_data['continuous_board_count'] == i])
                     if count > 0:
                         board_counts[i] = count
+                
+                # 计算晋级率
+                promotion_rates = self.calculate_promotion_rates(date)
                 
                 # 统计所有题材概念出现次数（拆分组合概念）
                 theme_counts = {}
@@ -319,9 +387,18 @@ class EnhancedStockDashboard:
                     <div class="summary-item"><span class="summary-label">炸板数:</span><span class="summary-value">{board_break_count}个</span></div>
                 '''
                 
-                # 添加各板数量统计
+                # 添加各板数量统计（包含晋级率）
                 for board, count in board_counts.items():
-                    stats_html += f'<div class="summary-item"><span class="summary-label">{board}板:</span><span class="summary-value">{count}个</span></div>'
+                    if board == 1:
+                        # 1板不显示晋级率
+                        stats_html += f'<div class="summary-item"><span class="summary-label">{board}板:</span><span class="summary-value">{count}个</span></div>'
+                    else:
+                        # 2板及以上显示晋级率
+                        promotion_rate = promotion_rates.get(board, 0)
+                        if promotion_rate > 0:
+                            stats_html += f'<div class="summary-item"><span class="summary-label">{board}板:</span><span class="summary-value">{count}个 ({promotion_rate}%)</span></div>'
+                        else:
+                            stats_html += f'<div class="summary-item"><span class="summary-label">{board}板:</span><span class="summary-value">{count}个</span></div>'
                 
                 # 添加所有题材概念显示
                 if sorted_themes:
