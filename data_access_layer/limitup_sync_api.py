@@ -106,6 +106,7 @@ def get_akshare_limitup_pool_data(days: int = 5) -> List[Dict[str, Any]]:
         from trade_time import get_reference_trade_date
         reference_trade_date = get_reference_trade_date()
         current_date_str = reference_trade_date.strftime('%Y%m%d')
+        logger.info(f"当前参考交易日: {current_date_str}")
         
         # 过滤掉未来的交易日，只保留历史交易日
         historical_trade_dates = [
@@ -487,6 +488,7 @@ def get_recent_limitup_data(days: int = 5) -> List[Dict[str, Any]]:
     from trade_time import get_reference_trade_date
     reference_trade_date = get_reference_trade_date()
     current_date_str = reference_trade_date.strftime('%Y%m%d')
+    logger.info(f"当前参考交易日: {current_date_str}")
     
     # 过滤掉未来的交易日，只保留历史交易日
     historical_trade_dates = [

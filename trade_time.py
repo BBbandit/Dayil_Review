@@ -418,12 +418,27 @@ def get_reference_trade_date() -> datetime.date:
     now_time = datetime.now()
     current_date = now_time.date()
     
+    
     # 情况1：当前是交易日且在交易时间内（开盘后且未收盘）
     if is_trade_date(current_date) and is_open(now_time) and not is_close(now_time):
+        logger.debug(f"参考交易日判断: 交易日 {current_date} 交易时间内 -> 返回当天")
         return current_date
     
-    # 情况2：其他情况都返回上一交易日
-    return get_previous_trade_date(current_date)
+    # 情况2：当前是交易日但已收盘，返回当前日期（当天数据已完整）
+    if is_trade_date(current_date) and is_close(now_time):
+        logger.debug(f"参考交易日判断: 交易日 {current_date} 已收盘 -> 返回当天")
+        return current_date
+    
+    # 情况3：当前是交易日但未开盘（开盘前），返回上一交易日
+    if is_trade_date(current_date) and not is_open(now_time):
+        prev_date = get_previous_trade_date(current_date)
+        logger.debug(f"参考交易日判断: 交易日 {current_date} 未开盘 -> 返回上一交易日 {prev_date}")
+        return prev_date
+    
+    # 情况4：非交易日，返回上一交易日
+    prev_date = get_previous_trade_date(current_date)
+    logger.debug(f"参考交易日判断: 非交易日 {current_date} -> 返回上一交易日 {prev_date}")
+    return prev_date
 
 def refresh_trade_dates(force: bool = False) -> None:
     """刷新交易日历缓存"""
