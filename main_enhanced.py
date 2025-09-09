@@ -13,7 +13,7 @@ import json
 from datetime import datetime, timedelta
 import pandas as pd
 import numpy as np
-from pyecharts.charts import Line, Bar, HeatMap, Graph, WordCloud, Radar, TreeMap, Sankey
+from pyecharts.charts import Line, Bar, HeatMap, Graph, WordCloud, Radar, TreeMap, Sankey, Pie, Grid
 from pyecharts import options as opts
 from pyecharts.globals import ThemeType
 import plotly.graph_objects as go
@@ -142,9 +142,41 @@ class EnhancedStockDashboard:
             print("   无需更新，日期范围内无交易日")
             return
         
-        # 同步数据
-        sync_result = sync_limitup_data(len(trade_dates_in_range))
-        print(f"√ 数据同步完成: {sync_result}")
+        # 同步数据（带超时保护）
+        try:
+            from threading import Thread
+            import queue
+            
+            # 使用队列传递结果
+            result_queue = queue.Queue()
+            
+            def sync_worker():
+                try:
+                    result = sync_limitup_data(len(trade_dates_in_range))
+                    result_queue.put(("success", result))
+                except Exception as e:
+                    result_queue.put(("error", str(e)))
+            
+            # 启动工作线程
+            worker_thread = Thread(target=sync_worker)
+            worker_thread.daemon = True
+            worker_thread.start()
+            
+            # 等待60秒
+            worker_thread.join(60)
+            
+            if worker_thread.is_alive():
+                print("⚠️  数据同步超时，跳过同步使用现有数据")
+            else:
+                # 获取结果
+                result_type, result_value = result_queue.get_nowait()
+                if result_type == "success":
+                    print(f"√ 数据同步完成: {result_value}")
+                else:
+                    print(f"⚠️  数据同步失败: {result_value}")
+                    
+        except Exception as e:
+            print(f"⚠️  数据同步异常: {e}")
     
     def generate_incremental_mock_data(self, start_date, end_date):
         """生成增量模拟数据（已禁用）"""
@@ -239,9 +271,60 @@ class EnhancedStockDashboard:
             data['market_sentiment'] = pd.DataFrame(self._convert_db_data(sentiment_data)) if sentiment_data else pd.DataFrame()
             
             # 加载连板个股数据 - 使用新的limitup_pool表
-            # 获取最近5天的涨停数据
-            limitup_data = get_recent_limitup_data(5)
-            data['limitup_events'] = pd.DataFrame(limitup_data) if limitup_data else pd.DataFrame()
+            # 获取最近5天的涨停数据（带超时保护）
+            try:
+                from threading import Thread
+                import queue
+                
+                # 使用队列传递结果
+                data_queue = queue.Queue()
+                
+                def data_worker():
+                    try:
+                        result = get_recent_limitup_data(5)
+                        data_queue.put(("success", result))
+                    except Exception as e:
+                        data_queue.put(("error", str(e)))
+                
+                # 启动工作线程
+                worker_thread = Thread(target=data_worker)
+                worker_thread.daemon = True
+                worker_thread.start()
+                
+                # 等待30秒
+                worker_thread.join(30)
+                
+                if worker_thread.is_alive():
+                    print("⚠️  连板数据加载超时，使用数据库现有数据")
+                    # 从数据库直接获取最近数据
+                    try:
+                        # 获取所有数据然后筛选最近5天
+                        all_data = self.db.get_limitup_events()
+                        if all_data:
+                            # 转换为DataFrame并筛选最近日期
+                            df = pd.DataFrame(self._convert_db_data(all_data))
+                            if not df.empty and 'date' in df.columns:
+                                # 获取最近的日期
+                                recent_dates = sorted(df['date'].unique(), reverse=True)[:5]
+                                data['limitup_events'] = df[df['date'].isin(recent_dates)]
+                            else:
+                                data['limitup_events'] = df
+                        else:
+                            data['limitup_events'] = pd.DataFrame()
+                    except:
+                        data['limitup_events'] = pd.DataFrame()
+                else:
+                    # 获取结果
+                    result_type, result_value = data_queue.get_nowait()
+                    if result_type == "success":
+                        data['limitup_events'] = pd.DataFrame(result_value) if result_value else pd.DataFrame()
+                    else:
+                        print(f"⚠️  连板数据加载失败: {result_value}")
+                        data['limitup_events'] = pd.DataFrame()
+                
+            except Exception as e:
+                print(f"⚠️  连板数据加载异常: {e}")
+                data['limitup_events'] = pd.DataFrame()
             
             # 获取日期列表 - 优先使用连板数据的日期，按最新到最旧排序
             if not data['limitup_events'].empty:
@@ -284,47 +367,211 @@ class EnhancedStockDashboard:
         
         return data
     
-    def create_sentiment_heatmap(self):
-        """创建大盘情绪热力图"""
-        sentiment_data = self.data['market_sentiment']
-        dates = self.data['dates']
-        
-        # 定义热力图指标
-        indicators = [
-            'highest_limitup', 'limitups', 'limitdowns', 'sealed_ratio',
-            'break_ratio', 'p1to2_success', 'p2to3_success', 'sh_change'
-        ]
-        indicator_names = [
-            '连板高度', '涨停数', '跌停数', '封板率',
-            '炸板率', '1进2成功率', '2进3成功率', '上证涨跌'
-        ]
-        
-        heatmap_data = []
-        for i, indicator in enumerate(indicators):
-            for j, date in enumerate(dates):
-                date_data = sentiment_data[sentiment_data['date'] == date]
-                if not date_data.empty:
-                    value = date_data[indicator].iloc[0]
-                    heatmap_data.append([j, i, value])
-        
-        heatmap = (
-            HeatMap(init_opts=opts.InitOpts(theme=ThemeType.DARK))
-            .add_xaxis(dates)
-            .add_yaxis(
-                "情绪指标",
-                indicator_names,
-                heatmap_data,
-                label_opts=opts.LabelOpts(is_show=False),
+    def create_congestion_chart(self):
+        """创建大盘拥挤度图表"""
+        try:
+            import akshare as ak
+            # 获取拥挤度数据
+            congestion_data = ak.stock_a_congestion_lg()
+            
+            # 获取市场活跃度数据
+            activity_data = ak.stock_market_activity_legu()
+            
+            # 确保数据按日期排序
+            congestion_data = congestion_data.sort_values('date')
+            
+            # 提取数据
+            dates = congestion_data['date'].tolist()
+            close_prices = congestion_data['close'].tolist()
+            congestion_values = congestion_data['congestion'].tolist()
+            
+            # 默认只显示最近两个月的数据点
+            two_months_count = min(60, len(dates))  # 最多显示60个数据点（约两个月）
+            recent_dates = dates[-two_months_count:]
+            recent_close_prices = close_prices[-two_months_count:]
+            recent_congestion_values = congestion_values[-two_months_count:]
+            
+            # 计算Y轴范围，使振幅更明显 - 增加间距
+            close_min = min(recent_close_prices)
+            close_max = max(recent_close_prices)
+            close_range = close_max - close_min
+            # 设置20%的边距，增加振幅可见性
+            close_y_min = close_min - close_range * 0.2
+            close_y_max = close_max + close_range * 0.2
+            
+            # 拥挤度范围扩展以增加振幅可见性
+            congestion_min = min(recent_congestion_values)
+            congestion_max = max(recent_congestion_values)
+            congestion_range = congestion_max - congestion_min
+            congestion_y_min = max(0, congestion_min - congestion_range * 0.3)  # 30%边距
+            congestion_y_max = min(1, congestion_max + congestion_range * 0.3)  # 30%边距
+            
+            # 创建双Y轴折线图
+            line = (
+                Line(init_opts=opts.InitOpts(theme=ThemeType.DARK, width="100%", height="400px"))
+                .add_xaxis(recent_dates)
+                .add_yaxis(
+                    "大盘点数",
+                    recent_close_prices,
+                    yaxis_index=0,
+                    linestyle_opts=opts.LineStyleOpts(width=2, color="#ff9f0a"),
+                    itemstyle_opts=opts.ItemStyleOpts(color="#ff9f0a"),
+                    label_opts=opts.LabelOpts(is_show=True, position="top", color="#ff9f0a"),
+                    markpoint_opts=opts.MarkPointOpts(
+                        data=[
+                            opts.MarkPointItem(type_="max", name="最高点"),
+                            opts.MarkPointItem(type_="min", name="最低点")
+                        ]
+                    ),
+                    is_smooth=True  # 启用平滑曲线
+                )
+                .add_yaxis(
+                    "拥挤度",
+                    recent_congestion_values,
+                    yaxis_index=1,
+                    linestyle_opts=opts.LineStyleOpts(width=2, color="#48dbfb"),
+                    itemstyle_opts=opts.ItemStyleOpts(color="#48dbfb"),
+                    label_opts=opts.LabelOpts(is_show=True, position="top", color="#48dbfb"),
+                    markline_opts=opts.MarkLineOpts(
+                        data=[
+                            opts.MarkLineItem(y=0.5, name="警戒线", linestyle_opts=opts.LineStyleOpts(
+                                type_="dashed", color="#ef4444", width=2
+                            ))
+                        ]
+                    ),
+                    is_smooth=True  # 启用平滑曲线
+                )
+                .extend_axis(
+                    yaxis=opts.AxisOpts(
+                        name="拥挤度",
+                        type_="value",
+                        position="right",
+                        min_=congestion_y_min,
+                        max_=congestion_y_max,
+                        axisline_opts=opts.AxisLineOpts(
+                            linestyle_opts=opts.LineStyleOpts(color="#48dbfb")
+                        ),
+                        axislabel_opts=opts.LabelOpts(formatter="{value}"),
+                        splitline_opts=opts.SplitLineOpts(is_show=False)
+                    )
+                )
+                .set_global_opts(
+                    title_opts=opts.TitleOpts(title="大盘情绪", pos_left="center"),
+                    tooltip_opts=opts.TooltipOpts(trigger="axis", axis_pointer_type="cross"),
+                    xaxis_opts=opts.AxisOpts(
+                        type_="category",
+                        boundary_gap=False,
+                        axislabel_opts=opts.LabelOpts(rotate=45),
+                        splitline_opts=opts.SplitLineOpts(is_show=False),
+                        axisline_opts=opts.AxisLineOpts(is_show=False)
+                    ),
+                    yaxis_opts=opts.AxisOpts(
+                        name="大盘点数",
+                        type_="value",
+                        position="left",
+                        min_=close_y_min,
+                        max_=close_y_max,
+                        axisline_opts=opts.AxisLineOpts(
+                            linestyle_opts=opts.LineStyleOpts(color="#ff9f0a")
+                        ),
+                        axislabel_opts=opts.LabelOpts(formatter="{value}"),
+                        splitline_opts=opts.SplitLineOpts(is_show=False)
+                    ),
+                    datazoom_opts=[
+                        opts.DataZoomOpts(
+                            type_="inside",
+                            range_start=50,  # 默认显示最近50%的数据（约两个月）
+                            range_end=100
+                        ),
+                        opts.DataZoomOpts(
+                            type_="slider",
+                            is_show=True,
+                            xaxis_index=[0],
+                            pos_bottom="10%",
+                            range_start=50,  # 默认显示最近50%的数据（约两个月）
+                            range_end=100
+                        )
+                    ],
+                    legend_opts=opts.LegendOpts(
+                        pos_top="10%",
+                        pos_right="10%"
+                    )
+                )
             )
-            .set_global_opts(
-                title_opts=opts.TitleOpts(title="大盘情绪热力图"),
-                visualmap_opts=opts.VisualMapOpts(
-                    min_=-5, max_=10, is_calculable=True, orient="horizontal", pos_left="center"
-                ),
-                xaxis_opts=opts.AxisOpts(axislabel_opts=opts.LabelOpts(rotate=45)),
+            # 创建环形饼状图 - 只显示主要分类
+            main_pie_items = ['上涨', '下跌', '平盘', '停牌']
+            main_pie_data = []
+            main_colors = ["#22c55e", "#ef4444", "#9ca3af", "#6b7280"]  # 绿、红、灰、深灰
+            
+            # 获取主要分类数据
+            for i, item in enumerate(main_pie_items):
+                item_data = activity_data[activity_data['item'] == item]
+                if not item_data.empty:
+                    value = item_data['value'].iloc[0]
+                    if pd.notna(value) and value > 0:
+                        main_pie_data.append((f"{item}: {int(value)}", value))
+            
+            # 获取统计日期
+            stat_date = ""
+            date_data = activity_data[activity_data['item'] == '统计日期']
+            if not date_data.empty:
+                stat_date = date_data['value'].iloc[0]
+            
+            # 创建环形饼图 - 左对齐并改进暗黑主题可见性
+            pie_chart = (
+                Pie(init_opts=opts.InitOpts(theme=ThemeType.DARK, width="100%", height="400px"))
+                .add(
+                    "",
+                    main_pie_data,
+                    center=["50%", "50%"],  # 居中显示
+                    radius=["40%", "70%"],  # 环形饼图
+                    label_opts=opts.LabelOpts(
+                        formatter="{b}",
+                        position="outside",
+                        font_size=12,
+                        font_weight="bold",
+                        color="#ffffff",  # 白色文字在暗黑主题中更明显
+                        text_border_width=1,
+                        text_border_color="rgba(0,0,0,0.5)"  # 添加黑色边框增强可见性
+                    ),
+                    tooltip_opts=opts.TooltipOpts(
+                        trigger="item",
+                        formatter="{a} <br/>{b} ({d}%)"
+                    )
+                )
+                .set_global_opts(
+                    title_opts=opts.TitleOpts(
+                        title=f"市场状态分布\n{stat_date}",
+                        pos_left="center",
+                        pos_bottom="2%",  # 移动到图表底部
+                        title_textstyle_opts=opts.TextStyleOpts(
+                            font_size=14,
+                            color="#ffffff"  # 白色标题
+                        )
+                    ),
+                    legend_opts=opts.LegendOpts(
+                        orient="vertical",
+                        pos_left="10%",  # 左对齐图例
+                        pos_top="25%",
+                        type_="scroll",
+                        textstyle_opts=opts.TextStyleOpts(
+                            color="#ffffff"  # 白色图例文字
+                        )
+                    )
+                )
+                .set_colors(main_colors)
             )
-        )
-        return heatmap
+            
+            # 返回两个独立的图表对象，让HTML模板分别渲染
+            return {
+                'line_chart': line,
+                'pie_chart': pie_chart
+            }
+            
+        except Exception as e:
+            print(f"❌ 获取图表数据失败: {e}")
+            # 返回一个空的图表
+            return Line(init_opts=opts.InitOpts(theme=ThemeType.DARK))
     
     def create_limitup_ladder(self):
         """创建连板天梯"""
@@ -488,7 +735,7 @@ class EnhancedStockDashboard:
     def generate_enhanced_html(self):
         """生成增强版HTML页面"""
         # 创建各个模块的内容
-        sentiment_chart = self.create_sentiment_heatmap()
+        congestion_chart = self.create_congestion_chart()
         ladder_content = self.create_limitup_ladder()
         market_options = self.generate_market_options()
         
@@ -913,10 +1160,7 @@ class EnhancedStockDashboard:
         <aside class="sidebar">
             <h2>📈 Bandit</h2>
             <a href="#" class="nav-item active" onclick="switchPage('ladder')">
-                <span class="nav-icon">🏆</span> 连板天梯
-            </a>
-            <a href="#" class="nav-item" onclick="switchPage('sentiment')">
-                <span class="nav-icon">📊</span> 大盘情绪
+                <span class="nav-icon">📊</span> 市场分析
             </a>
         </aside>
         
@@ -934,19 +1178,29 @@ class EnhancedStockDashboard:
         
         <!-- 主要内容区 -->
         <main class="main">
-            <!-- 连板天梯页面 -->
+            <!-- 市场分析页面 -->
             <div id="ladder-page" class="content-section">
+                <!-- 大盘情绪图表 -->
+                <h3 class="section-title">📊 大盘情绪</h3>
+                <div style="display: flex; gap: 20px; margin-bottom: 30px;">
+                    <!-- 左边图表 - 占2/3空间 -->
+                    <div style="flex: 2;">
+                        <div class="chart-container">
+                            <div id="line-chart" class="chart"></div>
+                        </div>
+                    </div>
+                    <!-- 右边饼图 - 占1/3空间 -->
+                    <div style="flex: 1;">
+                        <div class="chart-container">
+                            <div id="pie-chart" class="chart"></div>
+                        </div>
+                    </div>
+                </div>
+                
+                <!-- 连板天梯 -->
                 <h3 class="section-title">🏆 连板天梯</h3>
                 <div class="scrollable-columns">
                     {{ladder_content}}
-                </div>
-            </div>
-            
-            <!-- 大盘情绪页面 -->
-            <div id="sentiment-page" class="content-section" style="display: none;">
-                <h3 class="section-title">📊 大盘情绪分析</h3>
-                <div class="chart-container">
-                    <div id="sentiment-chart" class="chart"></div>
                 </div>
             </div>
             
@@ -960,39 +1214,20 @@ class EnhancedStockDashboard:
     </div>
     
     <script>
-        // 页面切换函数
-        function switchPage(page) {
-            // 隐藏所有页面
-            document.getElementById('ladder-page').style.display = 'none';
-            document.getElementById('sentiment-page').style.display = 'none';
+        // 初始化图表
+        function initCharts() {
+            // 初始化折线图
+            var lineChart = echarts.init(document.getElementById('line-chart'));
+            lineChart.setOption({{line_chart_option}});
             
-            // 显示选中页面
-            document.getElementById(page + '-page').style.display = 'block';
-            
-            // 更新导航激活状态
-            document.querySelectorAll('.nav-item').forEach(item => {
-                item.classList.remove('active');
-            });
-            event.target.classList.add('active');
-            
-            // 如果是情绪页面，隐藏市场分析仪表盘并初始化图表
-            if (page === 'sentiment') {
-                document.querySelector('.header').style.display = 'none';
-                initSentimentChart();
-            } else {
-                // 其他页面显示市场分析仪表盘
-                document.querySelector('.header').style.display = 'grid';
-            }
-        }
-        
-        // 初始化情绪图表
-        function initSentimentChart() {
-            var sentimentChart = echarts.init(document.getElementById('sentiment-chart'));
-            sentimentChart.setOption({{sentiment_chart_option}});
+            // 初始化饼图
+            var pieChart = echarts.init(document.getElementById('pie-chart'));
+            pieChart.setOption({{pie_chart_option}});
             
             // 窗口调整时重绘图表
             window.addEventListener('resize', function() {
-                sentimentChart.resize();
+                lineChart.resize();
+                pieChart.resize();
             });
         }
         
@@ -1058,8 +1293,8 @@ class EnhancedStockDashboard:
         
         // 页面加载完成后初始化
         document.addEventListener('DOMContentLoaded', function() {
-            // 默认显示连板天梯页面
-            switchPage('ladder');
+            // 初始化图表
+            initCharts();
             // 初始化分页控件
             updatePaginationControls();
         });
@@ -1073,7 +1308,8 @@ class EnhancedStockDashboard:
         html_content = html_content.replace('{{current_time}}', self.latest_db_date)
         html_content = html_content.replace('{{market_options}}', market_options)
         html_content = html_content.replace('{{ladder_content}}', ladder_content)
-        html_content = html_content.replace('{{sentiment_chart_option}}', sentiment_chart.dump_options())
+        html_content = html_content.replace('{{line_chart_option}}', congestion_chart['line_chart'].dump_options())
+        html_content = html_content.replace('{{pie_chart_option}}', congestion_chart['pie_chart'].dump_options())
         html_content = html_content.replace('{{all_dates}}', json.dumps(all_dates))
         
         # 写入HTML文件
