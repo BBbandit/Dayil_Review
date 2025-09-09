@@ -102,8 +102,10 @@ def get_akshare_limitup_pool_data(days: int = 5) -> List[Dict[str, Any]]:
         # 确保交易日历已加载
         trade_time_instance.load_trade_dates()
         
-        # 获取当前日期
-        current_date_str = datetime.now().strftime('%Y%m%d')
+        # 获取当前参考交易日（考虑是否已收盘）
+        from trade_time import get_reference_trade_date
+        reference_trade_date = get_reference_trade_date()
+        current_date_str = reference_trade_date.strftime('%Y%m%d')
         
         # 过滤掉未来的交易日，只保留历史交易日
         historical_trade_dates = [
@@ -481,8 +483,10 @@ def get_recent_limitup_data(days: int = 5) -> List[Dict[str, Any]]:
     # 确保交易日历已加载
     trade_time_instance.load_trade_dates()
     
-    # 获取当前日期
-    current_date_str = datetime.now().strftime('%Y%m%d')
+    # 获取当前参考交易日（考虑是否已收盘）
+    from trade_time import get_reference_trade_date
+    reference_trade_date = get_reference_trade_date()
+    current_date_str = reference_trade_date.strftime('%Y%m%d')
     
     # 过滤掉未来的交易日，只保留历史交易日
     historical_trade_dates = [

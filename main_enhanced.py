@@ -37,7 +37,7 @@ os.makedirs('static/js', exist_ok=True)
 
 class EnhancedStockDashboard:
     def __init__(self,):
-        self.current_page = "ladder"  # 默认页面: ladder, sentiment, themes, industries
+        self.current_page = "ladder"  # 默认页面: ladder, sentiment, industries
         self.html_file = 'output/stock_dashboard_enhanced.html'
         self.db = None
         
@@ -58,7 +58,6 @@ class EnhancedStockDashboard:
         return {
             'market_sentiment': pd.DataFrame(),
             'limitup_events': pd.DataFrame(),
-            'theme_daily': pd.DataFrame(),
             'industry_daily': pd.DataFrame(),
             'dates': []
         }
@@ -97,9 +96,10 @@ class EnhancedStockDashboard:
         # 获取数据库中最新的交易日期
         latest_db_date = self.db.get_latest_trade_date()
         
-        # 获取当前日期（模拟最新交易日）
-        current_date = datetime.now().date()
-        current_date_str = datetime.now().strftime('%Y-%m-%d')
+        # 获取当前参考交易日（考虑是否已收盘）
+        from trade_time import get_reference_trade_date
+        current_date = get_reference_trade_date()
+        current_date_str = current_date.strftime('%Y-%m-%d')
         
         # 存储最新日期用于UI显示
         self.latest_db_date = latest_db_date.strftime('%Y-%m-%d') if latest_db_date else current_date_str
@@ -122,32 +122,29 @@ class EnhancedStockDashboard:
         """增量更新数据库数据"""
         print(f"√ 增量更新数据库数据: {start_date} 到 {end_date}")
         
-        # 这里应该调用akshare或其他数据源API获取增量数据
-        # 由于akshare集成需要额外配置，这里使用模拟数据作为示例
+        # 使用真实数据同步API
+        from data_access_layer.limitup_sync_api import sync_limitup_data
         
-        # 生成增量数据
-        incremental_data = self.generate_incremental_mock_data(start_date.strftime('%Y-%m-%d'), end_date.strftime('%Y-%m-%d'))
+        # 计算需要同步的天数
+        from trade_time import trade_time_instance
+        trade_time_instance.load_trade_dates()
         
-        # 批量插入增量数据
-        success_count = 0
+        # 获取日期范围内的所有交易日
+        start_str = start_date.strftime('%Y%m%d')
+        end_str = end_date.strftime('%Y%m%d')
         
-        # 插入市场情绪数据
-        if incremental_data['market_sentiment']:
-            success_count += self.db.batch_insert_data('market_sentiment', incremental_data['market_sentiment'])
+        trade_dates_in_range = [
+            date_str for date_str in trade_time_instance.trade_date_list 
+            if start_str <= date_str <= end_str
+        ]
         
-        # 插入连板个股数据
-        if incremental_data['limitup_events']:
-            success_count += self.db.batch_insert_data('limitup_events', incremental_data['limitup_events'])
+        if not trade_dates_in_range:
+            print("   无需更新，日期范围内无交易日")
+            return
         
-        # 插入题材数据
-        if incremental_data['theme_daily']:
-            success_count += self.db.batch_insert_data('theme_daily', incremental_data['theme_daily'])
-        
-        # 插入行业数据
-        if incremental_data['industry_daily']:
-            success_count += self.db.batch_insert_data('industry_daily', incremental_data['industry_daily'])
-        
-        print(f"√ 增量更新完成，成功插入 {success_count} 条记录")
+        # 同步数据
+        sync_result = sync_limitup_data(len(trade_dates_in_range))
+        print(f"√ 数据同步完成: {sync_result}")
     
     def generate_incremental_mock_data(self, start_date, end_date):
         """生成增量模拟数据（已禁用）"""
@@ -181,10 +178,6 @@ class EnhancedStockDashboard:
             limitup_data = get_recent_limitup_data(5)
             data['limitup_events'] = pd.DataFrame(limitup_data) if limitup_data else pd.DataFrame()
             
-            # 加载题材数据
-            theme_data = self.db.get_theme_data()
-            data['theme_daily'] = pd.DataFrame(self._convert_db_data(theme_data)) if theme_data else pd.DataFrame()
-            
             # 加载行业数据
             industry_data = self.db.get_industry_data()
             data['industry_daily'] = pd.DataFrame(self._convert_db_data(industry_data)) if industry_data else pd.DataFrame()
@@ -205,7 +198,6 @@ class EnhancedStockDashboard:
             print(f"√ 数据加载完成: ")
             print(f"   市场情绪: {len(data['market_sentiment'])} 条")
             print(f"   连板个股: {len(data['limitup_events'])} 条") 
-            print(f"   题材数据: {len(data['theme_daily'])} 条")
             print(f"   行业数据: {len(data['industry_daily'])} 条")
             
             # 调试信息：检查数据内容
@@ -224,15 +216,6 @@ class EnhancedStockDashboard:
                 first_stock = data['limitup_events'].iloc[0]
                 print(first_stock)
                 
-                # 尝试解析题材JSON
-                themes = first_stock.get('themes')
-                if themes and pd.notna(themes):
-                    try:
-                        parsed_themes = json.loads(themes)
-                        print(f"   解析后的题材: {parsed_themes}")
-                    except Exception as e:
-                        print(f"   题材JSON解析失败: {e}")
-                        print(f"   原始题材数据: {themes}")
             
         except Exception as e:
             print(f"❌ 数据库数据加载失败: {e}")
@@ -412,48 +395,6 @@ class EnhancedStockDashboard:
         
         return ladder_html
     
-    def create_theme_cards(self):
-        """创建题材胶囊卡片"""
-        theme_data = self.data['theme_daily']
-        dates = self.data['dates']
-        
-        theme_html = ""
-        for date in dates:
-            date_data = theme_data[theme_data['date'] == date]
-            if not date_data.empty:
-                theme_html += f'''
-                <div class="date-column">
-                    <h4 class="column-date">{date}</h4>
-                    <div class="theme-cards">
-                '''
-                
-                # 取热度最高的5个题材
-                top_themes = date_data.nlargest(5, 'heat_score')
-                
-                for _, theme in top_themes.iterrows():
-                    change_class = "positive" if theme['chg_pct'] > 0 else "negative"
-                    new_badge = "🆕" if theme['is_new'] else ""
-                    
-                    theme_html += f'''
-                    <div class="theme-card" onclick="showThemeDetail('{theme['theme_name']}')">
-                        <div class="theme-header">
-                            <h5>{theme['theme_name']}</h5>
-                            <span class="heat-score">🔥{theme['heat_score']}</span>
-                        </div>
-                        <div class="theme-info">
-                            <p class="change {change_class}">📊 {theme['chg_pct']}%</p>
-                            <p class="leaders">🏆 {', '.join(theme['leaders'])}</p>
-                            <p class="streak">📅 连涨{theme['streak_days']}天 {new_badge}</p>
-                        </div>
-                    </div>
-                    '''
-                
-                theme_html += '''
-                    </div>
-                </div>
-                '''
-        
-        return theme_html
     
     def create_industry_cards(self):
         """创建行业排名卡片"""
@@ -522,7 +463,6 @@ class EnhancedStockDashboard:
         # 创建各个模块的内容
         sentiment_chart = self.create_sentiment_heatmap()
         ladder_content = self.create_limitup_ladder()
-        theme_content = self.create_theme_cards()
         industry_content = self.create_industry_cards()
         market_options = self.generate_market_options()
         
@@ -753,31 +693,16 @@ class EnhancedStockDashboard:
             font-weight: bold;
         }
         
-        .theme-stats {
-            margin-top: 10px;
-            padding-top: 10px;
-            border-top: 1px solid var(--grid-border);
-        }
         
-        .theme-stat-item {
-            display: flex;
-            justify-content: space-between;
-            margin: 2px 0;
-            font-size: 0.8em;
-        }
         
-        .theme-stat-count {
-            color: var(--accent);
-            font-weight: bold;
-        }
         
-        .ladder-cards, .theme-cards, .industry-cards {
+        .ladder-cards, .industry-cards {
             display: flex;
             flex-direction: column;
             gap: 12px;
         }
         
-        .limitup-card, .theme-card, .industry-card {
+        .limitup-card, .industry-card {
             background: var(--chip-bg);
             padding: 15px;
             border-radius: 8px;
@@ -787,7 +712,7 @@ class EnhancedStockDashboard:
             min-height: 280px; /* 增加最小高度以显示完整内容 */
         }
         
-        .limitup-card:hover, .theme-card:hover, .industry-card:hover {
+        .limitup-card:hover, .industry-card:hover {
             transform: translateY(-2px);
             box-shadow: var(--shadow);
         }
@@ -810,7 +735,7 @@ class EnhancedStockDashboard:
             background: linear-gradient(135deg, var(--chip-bg) 0%, #ff6b6b20 100%);
         }
         
-        .stock-header, .theme-header, .industry-header {
+        .stock-header, .industry-header {
             display: flex;
             align-items: center;
             margin-bottom: 10px;
@@ -868,7 +793,7 @@ class EnhancedStockDashboard:
             font-size: 0.8em;
         }
         
-        .stock-info p, .theme-info p, .industry-info p {
+        .stock-info p, .industry-info p {
             margin: 4px 0;
             font-size: 0.9em;
         }
@@ -879,7 +804,7 @@ class EnhancedStockDashboard:
             margin-top: 8px;
         }
         
-        .theme-tag, .industry-tag {
+        .industry-tag {
             background: var(--badge-purple);
             color: white;
             padding: 2px 6px;
@@ -967,9 +892,6 @@ class EnhancedStockDashboard:
             <a href="#" class="nav-item" onclick="switchPage('sentiment')">
                 <span class="nav-icon">📊</span> 大盘情绪
             </a>
-            <a href="#" class="nav-item" onclick="switchPage('themes')">
-                <span class="nav-icon">🔥</span> 题材追踪
-            </a>
             <a href="#" class="nav-item" onclick="switchPage('industries')">
                 <span class="nav-icon">🏢</span> 行业追踪
             </a>
@@ -1005,13 +927,6 @@ class EnhancedStockDashboard:
                 </div>
             </div>
             
-            <!-- 题材追踪页面 -->
-            <div id="themes-page" class="content-section" style="display: none;">
-                <h3 class="section-title">🔥 题材追踪</h3>
-                <div class="scrollable-columns">
-                    {{theme_content}}
-                </div>
-            </div>
             
             <!-- 行业追踪页面 -->
             <div id="industries-page" class="content-section" style="display: none;">
@@ -1034,7 +949,6 @@ class EnhancedStockDashboard:
             // 隐藏所有页面
             document.getElementById('ladder-page').style.display = 'none';
             document.getElementById('sentiment-page').style.display = 'none';
-            document.getElementById('themes-page').style.display = 'none';
             document.getElementById('industries-page').style.display = 'none';
             
             // 显示选中页面
@@ -1084,11 +998,6 @@ class EnhancedStockDashboard:
             alert('股票详情功能: ' + ticker);
         }
         
-        // 显示题材详情
-        function showThemeDetail(themeName) {
-            console.log('显示题材详情:', themeName);
-            alert('题材详情功能: ' + themeName);
-        }
         
         // 显示行业详情
         function showIndustryDetail(industryName) {
@@ -1154,7 +1063,6 @@ class EnhancedStockDashboard:
         html_content = html_content.replace('{{current_time}}', self.latest_db_date)
         html_content = html_content.replace('{{market_options}}', market_options)
         html_content = html_content.replace('{{ladder_content}}', ladder_content)
-        html_content = html_content.replace('{{theme_content}}', theme_content)
         html_content = html_content.replace('{{industry_content}}', industry_content)
         html_content = html_content.replace('{{sentiment_chart_option}}', sentiment_chart.dump_options())
         html_content = html_content.replace('{{all_dates}}', json.dumps(all_dates))
