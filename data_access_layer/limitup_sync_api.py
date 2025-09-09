@@ -539,19 +539,20 @@ def get_pywencai_limitup_data(**kwargs):
         
         logger.info(f"成功获取 {len(data)} 条涨停数据")
         
-        # 打印数据信息
-        print(f"\n=== pywencai涨停数据查询结果 ===")
-        print(f"数据形状: {data.shape}")
-        print(f"列名: {list(data.columns)}")
-        
-        # 筛选只保留股票代码和涨停原因类别
-        if '股票代码' in data.columns and '涨停原因类别[20250905]' in data.columns:
-            filtered_data = data[['股票代码', '涨停原因类别[20250905]']]
-            print(f"\n筛选后的数据 (股票代码 + 涨停原因类别):")
-            print(filtered_data)
-        else:
-            print(f"\n前5行数据:")
-            print(data.head())
+        # 调试信息 - 只在需要时启用
+        if logger.level <= logging.DEBUG:
+            logger.debug(f"\n=== pywencai涨停数据查询结果 ===")
+            logger.debug(f"数据形状: {data.shape}")
+            logger.debug(f"列名: {list(data.columns)}")
+            
+            # 筛选只保留股票代码和涨停原因类别
+            if '股票代码' in data.columns and '涨停原因类别[20250905]' in data.columns:
+                filtered_data = data[['股票代码', '涨停原因类别[20250905]']]
+                logger.debug(f"\n筛选后的数据 (股票代码 + 涨停原因类别):")
+                logger.debug(filtered_data)
+            else:
+                logger.debug(f"\n前5行数据:")
+                logger.debug(data.head())
         
         return data
         

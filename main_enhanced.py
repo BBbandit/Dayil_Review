@@ -3,7 +3,7 @@
 
 """
 股票市场分析仪表板 - 增强版
-包含完整的4个功能模块: 连板天梯、大盘情绪、题材追踪、行业追踪
+包含完整的功能模块: 连板天梯、大盘情绪
 使用模拟数据实现所有功能
 """
 
@@ -37,7 +37,7 @@ os.makedirs('static/js', exist_ok=True)
 
 class EnhancedStockDashboard:
     def __init__(self,):
-        self.current_page = "ladder"  # 默认页面: ladder, sentiment, industries
+        self.current_page = "ladder"  # 默认页面: ladder, sentiment
         self.html_file = 'output/stock_dashboard_enhanced.html'
         self.db = None
         
@@ -243,10 +243,6 @@ class EnhancedStockDashboard:
             limitup_data = get_recent_limitup_data(5)
             data['limitup_events'] = pd.DataFrame(limitup_data) if limitup_data else pd.DataFrame()
             
-            # 加载行业数据
-            industry_data = self.db.get_industry_data()
-            data['industry_daily'] = pd.DataFrame(self._convert_db_data(industry_data)) if industry_data else pd.DataFrame()
-            
             # 获取日期列表 - 优先使用连板数据的日期，按最新到最旧排序
             if not data['limitup_events'].empty:
                 dates = sorted(data['limitup_events']['date'].unique(), reverse=True)
@@ -262,8 +258,7 @@ class EnhancedStockDashboard:
             
             print(f"√ 数据加载完成: ")
             print(f"   市场情绪: {len(data['market_sentiment'])} 条")
-            print(f"   连板个股: {len(data['limitup_events'])} 条") 
-            print(f"   行业数据: {len(data['industry_daily'])} 条")
+            print(f"   连板个股: {len(data['limitup_events'])} 条")
             
             # 调试信息：检查数据内容
             print(f"   市场情绪列名: {list(data['market_sentiment'].columns) if not data['market_sentiment'].empty else '空'}")
@@ -472,51 +467,6 @@ class EnhancedStockDashboard:
         
         return ladder_html
     
-    
-    def create_industry_cards(self):
-        """创建行业排名卡片"""
-        industry_data = self.data['industry_daily']
-        dates = self.data['dates']
-        
-        industry_html = ""
-        for date in dates:
-            date_data = industry_data[industry_data['date'] == date]
-            if not date_data.empty:
-                industry_html += f'''
-                <div class="date-column">
-                    <h4 class="column-date">{date}</h4>
-                    <div class="industry-cards">
-                '''
-                
-                # 取排名前5的行业
-                top_industries = date_data.nsmallest(5, 'rank')
-                
-                for _, industry in top_industries.iterrows():
-                    change_class = "positive" if industry['chg_pct'] > 0 else "negative"
-                    flow_class = "inflow" if industry['net_main_inflow'] > 0 else "outflow"
-                    
-                    industry_html += f'''
-                    <div class="industry-card" onclick="showIndustryDetail('{industry['industry_name']}')">
-                        <div class="industry-header">
-                            <span class="rank-badge">#{industry['rank']}</span>
-                            <h5>{industry['industry_name']}</h5>
-                        </div>
-                        <div class="industry-info">
-                            <p class="change {change_class}">📈 {industry['chg_pct']}%</p>
-                            <p class="strength">💪 强度: {industry['strength_score']}</p>
-                            <p class="flow {flow_class}">💰 净流入: {industry['net_main_inflow']:,}</p>
-                            <p class="leaders">🎯 领涨: {', '.join(industry['leaders'][:2])}</p>
-                        </div>
-                    </div>
-                    '''
-                
-                industry_html += '''
-                    </div>
-                </div>
-                '''
-        
-        return industry_html
-    
     def generate_market_options(self):
         """生成市场筛选选项"""
         market_options = ""
@@ -540,7 +490,6 @@ class EnhancedStockDashboard:
         # 创建各个模块的内容
         sentiment_chart = self.create_sentiment_heatmap()
         ladder_content = self.create_limitup_ladder()
-        industry_content = self.create_industry_cards()
         market_options = self.generate_market_options()
         
         # 获取所有可用日期（按最新到最旧排序）
@@ -962,15 +911,12 @@ class EnhancedStockDashboard:
     <div class="container">
         <!-- 左侧导航栏 -->
         <aside class="sidebar">
-            <h2>📈 股票分析</h2>
+            <h2>📈 Bandit</h2>
             <a href="#" class="nav-item active" onclick="switchPage('ladder')">
                 <span class="nav-icon">🏆</span> 连板天梯
             </a>
             <a href="#" class="nav-item" onclick="switchPage('sentiment')">
                 <span class="nav-icon">📊</span> 大盘情绪
-            </a>
-            <a href="#" class="nav-item" onclick="switchPage('industries')">
-                <span class="nav-icon">🏢</span> 行业追踪
             </a>
         </aside>
         
@@ -1005,18 +951,11 @@ class EnhancedStockDashboard:
             </div>
             
             
-            <!-- 行业追踪页面 -->
-            <div id="industries-page" class="content-section" style="display: none;">
-                <h3 class="section-title">🏢 行业追踪</h3>
-                <div class="scrollable-columns">
-                    {{industry_content}}
-                </div>
-            </div>
         </main>
         
         <!-- 页脚 -->
         <footer class="footer">
-            <p>© 2024 股票分析系统 | 数据更新时间: {{current_time}} | 使用模拟数据</p>
+            <p>© 2024 Bandit分析系统 | 数据更新时间: {{current_time}} | 使用pywencai&akshare数据</p>
         </footer>
     </div>
     
@@ -1026,7 +965,6 @@ class EnhancedStockDashboard:
             // 隐藏所有页面
             document.getElementById('ladder-page').style.display = 'none';
             document.getElementById('sentiment-page').style.display = 'none';
-            document.getElementById('industries-page').style.display = 'none';
             
             // 显示选中页面
             document.getElementById(page + '-page').style.display = 'block';
@@ -1076,11 +1014,6 @@ class EnhancedStockDashboard:
         }
         
         
-        // 显示行业详情
-        function showIndustryDetail(industryName) {
-            console.log('显示行业详情:', industryName);
-            alert('行业详情功能: ' + industryName);
-        }
 
         // 分页功能
         let currentPage = 1;
@@ -1140,7 +1073,6 @@ class EnhancedStockDashboard:
         html_content = html_content.replace('{{current_time}}', self.latest_db_date)
         html_content = html_content.replace('{{market_options}}', market_options)
         html_content = html_content.replace('{{ladder_content}}', ladder_content)
-        html_content = html_content.replace('{{industry_content}}', industry_content)
         html_content = html_content.replace('{{sentiment_chart_option}}', sentiment_chart.dump_options())
         html_content = html_content.replace('{{all_dates}}', json.dumps(all_dates))
         

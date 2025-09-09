@@ -360,7 +360,7 @@ class StockDashboard:
     <div class="container">
         <!-- 左侧导航栏 -->
         <aside class="sidebar">
-            <h2>📈 股票分析</h2>
+            <h2>📈 Bandit</h2>
             <a href="#" class="nav-item active">📊 大盘情绪</a>
             <a href="#" class="nav-item">🏆 连板天梯</a>
             <a href="#" class="nav-item">💰 资金流向</a>
@@ -405,7 +405,7 @@ class StockDashboard:
         
         <!-- 页脚 -->
         <footer class="footer">
-            <p>© 2024 股票分析系统 | 最后更新: {{current_time}}</p>
+            <p>© 2024 Bandit分析系统 | 最后更新: {{current_time}}</p>
         </footer>
     </div>
     
