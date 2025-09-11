@@ -501,7 +501,7 @@ class EnhancedStockDashboard:
             # 创建环形饼状图 - 只显示主要分类
             main_pie_items = ['上涨', '下跌', '平盘', '停牌']
             main_pie_data = []
-            main_colors = ["#22c55e", "#ef4444", "#9ca3af", "#6b7280"]  # 绿、红、灰、深灰
+            main_colors = ["#ef4444", "#22c55e", "#9ca3af", "#6b7280"]  # 红(上涨)、绿(下跌)、灰、深灰
             
             # 获取主要分类数据
             for i, item in enumerate(main_pie_items):
