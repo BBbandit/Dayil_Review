@@ -27,7 +27,7 @@ from database import StockDatabase, get_database
 import sys
 import os
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-from data_access_layer.limitup_sync_api import get_limitup_data_by_date_range, get_recent_limitup_data
+from data_access_layer.limitup_sync_api import get_limitup_data_by_date_range, get_recent_limitup_data, get_pre_market_auction_data
 
 # 创建输出目录
 os.makedirs('output', exist_ok=True)
@@ -123,7 +123,7 @@ class EnhancedStockDashboard:
         print(f"√ 增量更新数据库数据: {start_date} 到 {end_date}")
         
         # 使用真实数据同步API
-        from data_access_layer.limitup_sync_api import sync_limitup_data
+        from data_access_layer.limitup_sync_api import sync_limitup_data, sync_pre_market_auction_data
         
         # 计算需要同步的天数
         from trade_time import trade_time_instance
@@ -152,8 +152,16 @@ class EnhancedStockDashboard:
             
             def sync_worker():
                 try:
-                    result = sync_limitup_data(len(trade_dates_in_range))
-                    result_queue.put(("success", result))
+                    # 同步涨停数据
+                    limitup_result = sync_limitup_data(len(trade_dates_in_range))
+                    # 同步集合竞价数据
+                    auction_result = sync_pre_market_auction_data(len(trade_dates_in_range))
+                    
+                    combined_result = {
+                        'limitup': limitup_result,
+                        'auction': auction_result
+                    }
+                    result_queue.put(("success", combined_result))
                 except Exception as e:
                     result_queue.put(("error", str(e)))
             
@@ -171,7 +179,8 @@ class EnhancedStockDashboard:
                 # 获取结果
                 result_type, result_value = result_queue.get_nowait()
                 if result_type == "success":
-                    print(f"√ 数据同步完成: {result_value}")
+                    print(f"√ 涨停数据同步完成: {result_value['limitup']}")
+                    print(f"√ 集合竞价数据同步完成: {result_value['auction']}")
                 else:
                     print(f"⚠️  数据同步失败: {result_value}")
                     
@@ -359,6 +368,10 @@ class EnhancedStockDashboard:
                 first_stock = data['limitup_events'].iloc[0]
                 print(first_stock)
                 
+            # 加载集合竞价数据
+            auction_data = get_pre_market_auction_data()
+            data['pre_market_auction'] = pd.DataFrame(self._convert_db_data(auction_data)) if auction_data else pd.DataFrame()
+            print(f"   集合竞价: {len(data['pre_market_auction'])} 条")
             
         except Exception as e:
             print(f"❌ 数据库数据加载失败: {e}")
@@ -621,12 +634,30 @@ class EnhancedStockDashboard:
                 # 按出现次数降序排序题材，取前10个
                 sorted_themes = sorted(theme_counts.items(), key=lambda x: x[1], reverse=True)[:10]
                 
+                # 获取当日集合竞价数据
+                auction_count = 0
+                auction_amount_total = 0
+                max_auction_stock_name = ""
+                max_auction_amount = 0
+                if not self.data['pre_market_auction'].empty:
+                    date_auction_data = self.data['pre_market_auction'][self.data['pre_market_auction']['date'] == date]
+                    auction_count = len(date_auction_data)
+                    auction_amount_total = date_auction_data['auction_amount'].sum() if 'auction_amount' in date_auction_data.columns else 0
+                    
+                    # 找到竞价金额最大的股票
+                    if not date_auction_data.empty and 'auction_amount' in date_auction_data.columns:
+                        max_auction_row = date_auction_data.loc[date_auction_data['auction_amount'].idxmax()]
+                        max_auction_amount = max_auction_row['auction_amount']
+                        max_auction_stock_name = max_auction_row['name']
+                
                 # 生成统计HTML
                 stats_html = f'''
                 <div class="summary-stats">
                     <div class="summary-item"><span class="summary-label">最高板:</span><span class="summary-value">{max_board}板</span></div>
                     <div class="summary-item"><span class="summary-label">一字板:</span><span class="summary-value">{one_word_count}个</span></div>
                     <div class="summary-item"><span class="summary-label">炸板数:</span><span class="summary-value">{board_break_count}个</span></div>
+                    <div class="summary-item"><span class="summary-label">竞价涨停:</span><span class="summary-value">{auction_count}个</span></div>
+                    <div class="summary-item"><span class="summary-label">最大竞价:</span><span class="summary-value">{max_auction_stock_name} ({max_auction_amount/10000:.1f}万)</span></div>
                 '''
                 
                 # 添加各板数量统计（包含晋级率）
@@ -714,6 +745,57 @@ class EnhancedStockDashboard:
         
         return ladder_html
     
+    def create_auction_display(self):
+        """创建集合竞价数据显示"""
+        auction_data = self.data['pre_market_auction']
+        if auction_data.empty:
+            return ""
+        
+        dates = self.data['dates']
+        auction_html = ""
+        
+        for date in dates:
+            # 转换日期格式匹配 (YYYYMMDD → YYYY-MM-DD)
+            formatted_date = f"{date[:4]}-{date[4:6]}-{date[6:8]}" if len(date) == 8 and date.isdigit() else date
+            date_auction_data = auction_data[auction_data['date'] == date]
+            
+            if not date_auction_data.empty:
+                auction_html += f'''
+                <div class="date-column">
+                    <h4 class="column-date">🏆 集合竞价 ({formatted_date})</h4>
+                    <div class="ladder-cards">
+                '''
+                
+                # 按竞价金额从大到小排序
+                sorted_auction_data = date_auction_data.sort_values('auction_amount', ascending=False)
+                for _, auction_stock in sorted_auction_data.iterrows():
+                    auction_amount_formatted = f"{auction_stock.get('auction_amount', 0)/10000:.1f}万" if pd.notna(auction_stock.get('auction_amount')) else "0"
+                    latest_price_formatted = f"{auction_stock.get('latest_price', 0):.2f}" if pd.notna(auction_stock.get('latest_price')) else "0.00"
+                    change_percent_formatted = f"{auction_stock.get('change_percent', 0):.2f}" if pd.notna(auction_stock.get('change_percent')) else "0.00"
+                    
+                    auction_html += f'''
+                    <div class="limitup-card auction-card" onclick="showStockDetail('{auction_stock.get('code', '')}')">
+                        <div class="stock-header">
+                            <h5>{auction_stock.get('name', '')}</h5>
+                            <span class="stock-code">{auction_stock.get('code', '')}</span>
+                        </div>
+                        <div class="stock-info">
+                            <p>💰 最新价: {latest_price_formatted}</p>
+                            <p>📈 涨跌幅: {change_percent_formatted}%</p>
+                            <p>💰 竞价金额: {auction_amount_formatted}</p>
+                            <p>📊 涨停价: {auction_stock.get('limit_price', 0):.2f}</p>
+                            <p>🏷️ 涨停原因: {auction_stock.get('limit_reason', '')}</p>
+                        </div>
+                    </div>
+                    '''
+                
+                auction_html += '''
+                    </div>
+                </div>
+                '''
+        
+        return auction_html
+    
     def generate_market_options(self):
         """生成市场筛选选项"""
         market_options = ""
@@ -737,6 +819,7 @@ class EnhancedStockDashboard:
         # 创建各个模块的内容
         congestion_chart = self.create_congestion_chart()
         ladder_content = self.create_limitup_ladder()
+        auction_content = self.create_auction_display()
         market_options = self.generate_market_options()
         
         # 获取所有可用日期（按最新到最旧排序）
@@ -1008,6 +1091,22 @@ class EnhancedStockDashboard:
             background: linear-gradient(135deg, var(--chip-bg) 0%, #ff6b6b20 100%);
         }
         
+        /* 集合竞价卡片样式 */
+        .auction-card {
+            background: var(--chip-bg);
+            padding: 15px;
+            border-radius: 8px;
+            border-left: 4px solid #48dbfb;
+            cursor: pointer;
+            transition: all 0.3s;
+            min-height: 180px;
+        }
+        
+        .auction-card:hover {
+            transform: translateY(-2px);
+            box-shadow: var(--shadow);
+        }
+        
         .stock-header, .industry-header {
             display: flex;
             align-items: center;
@@ -1197,6 +1296,12 @@ class EnhancedStockDashboard:
                     </div>
                 </div>
                 
+                <!-- 集合竞价 -->
+                <h3 class="section-title">🏆 集合竞价</h3>
+                <div class="scrollable-columns">
+                    {{auction_content}}
+                </div>
+                
                 <!-- 连板天梯 -->
                 <h3 class="section-title">🏆 连板天梯</h3>
                 <div class="scrollable-columns">
@@ -1308,6 +1413,7 @@ class EnhancedStockDashboard:
         html_content = html_content.replace('{{current_time}}', self.latest_db_date)
         html_content = html_content.replace('{{market_options}}', market_options)
         html_content = html_content.replace('{{ladder_content}}', ladder_content)
+        html_content = html_content.replace('{{auction_content}}', auction_content)
         html_content = html_content.replace('{{line_chart_option}}', congestion_chart['line_chart'].dump_options())
         html_content = html_content.replace('{{pie_chart_option}}', congestion_chart['pie_chart'].dump_options())
         html_content = html_content.replace('{{all_dates}}', json.dumps(all_dates))
