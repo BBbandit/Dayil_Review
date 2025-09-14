@@ -455,6 +455,46 @@ def sync_limitup_data(days: int = 5) -> Dict[str, Any]:
     
     return result
 
+def sync_pre_market_auction_data(days: int = 5) -> Dict[str, Any]:
+    """
+    同步集合竞价数据的主函数
+    
+    Args:
+        days: 同步最近多少天的数据，默认5天
+        
+    Returns:
+        Dict: 同步结果统计
+    """
+    result = {
+        'total_days': days,
+        'fetched_records': 0,
+        'inserted_records': 0,
+        'status': 'success'
+    }
+    
+    try:
+        logger.info(f"开始同步最近 {days} 天的集合竞价数据...")
+        
+        # 1. 确保数据表存在
+        if not create_pre_market_auction_table():
+            result['status'] = 'table_creation_failed'
+            return result
+        
+        # 2. 这里需要实现从数据源获取集合竞价数据的逻辑
+        # 由于集合竞价数据来源不同，这里先返回空结果
+        logger.info("集合竞价数据同步功能待实现")
+        
+        # 3. 返回成功结果（实际项目中需要实现数据获取和插入逻辑）
+        result['fetched_records'] = 0
+        result['inserted_records'] = 0
+        
+    except Exception as e:
+        logger.error(f"集合竞价数据同步失败: {e}")
+        result['status'] = 'error'
+        result['error_message'] = str(e)
+    
+    return result
+
 def get_limitup_data_by_date_range(start_date: str, end_date: str) -> List[Dict[str, Any]]:
     """
     获取指定日期范围内的涨停数据
