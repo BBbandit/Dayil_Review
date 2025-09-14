@@ -82,6 +82,51 @@ def create_limitup_pool_table() -> bool:
         logger.error(f"创建涨停池数据表失败: {e}")
         return False
 
+def create_pre_market_auction_table() -> bool:
+    """
+    创建集合竞价数据表
+    
+    Returns:
+        bool: 是否创建成功
+    """
+    try:
+        db = get_database()
+        if not db.connect():
+            logger.error("数据库连接失败")
+            return False
+        
+        create_table_query = """
+        CREATE TABLE IF NOT EXISTS pre_market_auction (
+            id INT AUTO_INCREMENT PRIMARY KEY,
+            date DATE NOT NULL COMMENT '交易日期',
+            code VARCHAR(10) NOT NULL COMMENT '股票代码',
+            name VARCHAR(50) NOT NULL COMMENT '股票名称',
+            latest_price DECIMAL(10,2) COMMENT '最新价',
+            change_percent DECIMAL(10,6) COMMENT '涨跌幅',
+            limit_price DECIMAL(10,2) COMMENT '涨停价',
+            auction_amount DECIMAL(15,2) COMMENT '竞价金额',
+            limit_reason VARCHAR(200) COMMENT '涨停原因',
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+            UNIQUE KEY unique_stock_date (date, code),
+            INDEX idx_date (date),
+            INDEX idx_code (code),
+            INDEX idx_name (name),
+            INDEX idx_auction_amount (auction_amount)
+        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='集合竞价数据表'
+        """
+        
+        cursor = db.connection.cursor()
+        cursor.execute(create_table_query)
+        cursor.close()
+        
+        logger.info("集合竞价数据表创建/验证完成")
+        return True
+        
+    except Exception as e:
+        logger.error(f"创建集合竞价数据表失败: {e}")
+        return False
+
 
 def get_akshare_limitup_pool_data(days: int = 5) -> List[Dict[str, Any]]:
     """
@@ -559,6 +604,53 @@ def get_pywencai_limitup_data(**kwargs):
     except Exception as e:
         logger.error(f"pywencai查询失败: {e}")
         raise
+
+def get_pre_market_auction_data() -> List[Dict[str, Any]]:
+    """
+    获取集合竞价数据
+    
+    Returns:
+        List[Dict]: 集合竞价数据列表
+    """
+    try:
+        db = get_database()
+        if not db.connect():
+            logger.warning("数据库连接失败")
+            return []
+        
+        # 确保表存在
+        if not create_pre_market_auction_table():
+            return []
+        
+        query = """
+        SELECT * FROM pre_market_auction 
+        ORDER BY date DESC, auction_amount DESC
+        """
+        
+        result = db.execute_query(query)
+        
+        if result and len(result) > 0:
+            # 转换数据库数据格式
+            converted_data = []
+            for row in result:
+                converted_data.append({
+                    'date': row['date'].strftime('%Y%m%d') if hasattr(row['date'], 'strftime') else str(row['date']),
+                    'code': row['code'],
+                    'name': row['name'],
+                    'latest_price': float(row['latest_price']),
+                    'change_percent': float(row['change_percent']),
+                    'limit_price': float(row['limit_price']),
+                    'auction_amount': float(row['auction_amount']),
+                    'limit_reason': row.get('limit_reason', '')
+                })
+            return converted_data
+        else:
+            logger.info("数据库中没有集合竞价数据")
+            return []
+            
+    except Exception as e:
+        logger.error(f"获取集合竞价数据失败: {e}")
+        return []
 
 
 if __name__ == "__main__":
